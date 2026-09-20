@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Generated data assets (run `npm run fetch-examples` to regenerate)
+src/data/*.zip
+.examples-tmp/
+
+# IDE / editor
+.vscode/
+.idea/
+.codearts/
+.codeartsdoer/
+.claude/
+.fleet/
+.cursor/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment / local config
+.env
+.env.local
+*.local
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Deployment workspaces (local terraform dirs created during testing/usage)
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+.deployment.json
+networking.json
+cost.json

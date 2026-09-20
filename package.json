@@ -1,0 +1,46 @@
+{
+  "name": "@huaweidevtools/mcp-huaweicloud-ops-deploy",
+  "version": "0.0.1-beta.1",
+  "description": "MCP server for deploying, querying, and operating HuaweiCloud infrastructure via the Model Context Protocol.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "mcp-huaweicloud-ops-deploy": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc && (test -f src/data/terraform-examples.zip || (echo 'ERROR: src/data/terraform-examples.zip missing — run \"npm run fetch-examples\" first' && exit 1)) && mkdir -p dist/data && cp src/data/terraform-examples.zip dist/data/",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "fetch-examples": "tsx scripts/fetch-examples.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "modelcontextprotocol",
+    "mcp",
+    "huaweicloud",
+    "terraform",
+    "ops"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
+    "@napi-rs/keyring": "^2.1.0",
+    "adm-zip": "^0.6.1",
+    "node-machine-id": "^1.1.12",
+    "zod": "^4.2.0"
+  },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.8",
+    "@types/node": "^26.6.1",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1"
+  }
+}
