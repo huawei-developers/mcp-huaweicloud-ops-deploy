@@ -241,4 +241,67 @@ describe("extractFields", () => {
     const result = extractFields(jsonBody, []);
     expect(result).toEqual([]);
   });
+
+  // --- JSONPath (RFC 9535) array support — the upgrade's core value ---
+  // The old dot-path walker could not descend into arrays; HuaweiCloud APIs
+  // return arrays (resource lists, bill details), so account_balances[*].amount
+  // must work. These tests pin the fix.
+
+  const arrayBody = JSON.stringify({
+    account_balances: [
+      { account_id: "AT001", amount: 15.59 },
+      { account_id: "AT005", amount: 0 },
+    ],
+    debt_amount: 0,
+    currency: "CNY",
+  });
+
+  it("array wildcard [*] extracts all elements' field", () => {
+    const result = extractFields(arrayBody, ["account_balances[*].amount"]);
+    expect(result).toEqual([
+      { path: "account_balances[*].amount", value: [15.59, 0] },
+    ]);
+  });
+
+  it("array index [N] extracts a single element (unwrapped to bare value)", () => {
+    const result = extractFields(arrayBody, ["account_balances[0].amount"]);
+    expect(result).toEqual([
+      { path: "account_balances[0].amount", value: 15.59 },
+    ]);
+  });
+
+  it("$ prefix is optional — $.x equals x (value-wise)", () => {
+    const withDollar = extractFields(arrayBody, ["$.account_balances[*].amount"]);
+    const withoutDollar = extractFields(arrayBody, ["account_balances[*].amount"]);
+    // path is returned as-is (with/without $), but the extracted value is the same
+    expect(withDollar?.[0]?.value).toEqual(withoutDollar?.[0]?.value);
+  });
+
+  it("filter expression [?(@.field>value)] narrows array elements", () => {
+    const result = extractFields(arrayBody, ["account_balances[?(@.amount>0)].amount"]);
+    // Filter leaves 1 match → single-result unwrap → bare value (not [15.59])
+    expect(result).toEqual([
+      { path: "account_balances[?(@.amount>0)].amount", value: 15.59 },
+    ]);
+  });
+
+  it("recursive descent .. finds nested fields at any depth", () => {
+    const result = extractFields(arrayBody, ["$..amount"]);
+    expect(result).toEqual([
+      { path: "$..amount", value: [15.59, 0] },
+    ]);
+  });
+
+  it("mixed fields array: simple path + array wildcard + missing path", () => {
+    const result = extractFields(arrayBody, [
+      "currency",
+      "account_balances[*].account_id",
+      "nonexistent",
+    ]);
+    expect(result).toEqual([
+      { path: "currency", value: "CNY" },
+      { path: "account_balances[*].account_id", value: ["AT001", "AT005"] },
+      { path: "nonexistent", value: null },
+    ]);
+  });
 });

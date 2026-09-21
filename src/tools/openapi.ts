@@ -1,5 +1,6 @@
 import type { CallToolResult, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import { JSONPath } from "jsonpath-plus";
 
 import { fail, guard, ok } from "./errors.js";
 import { signedHttp } from "../auth/http.js";
@@ -73,7 +74,7 @@ export function registerOpenApiTools(mcp: McpServer): void {
         url: z.string().describe("Full URL, e.g. https://ecs.cn-north-4.myhuaweicloud.com/v1/..."),
         body: z.string().optional().describe("Request body (JSON string) for POST/PUT"),
         headers: z.record(z.string(), z.string()).optional(),
-        fields: z.array(z.string()).optional().describe("Dot-path fields to extract from the JSON response, e.g. [\"data.bills\", \"data.total_count\"]. When set, only those paths are returned (as {path, value} pairs; missing paths → null) instead of the full body. Avoids pulling large responses into context. Ignored if body is not valid JSON."),
+        fields: z.array(z.string()).optional().describe("JSONPath expressions (RFC 9535) to extract from the JSON response, e.g. [\"$.account_balances[*].amount\", \"$.currency\"]. Supports array wildcards ([*]), indices ([0]), filters ([?(@.amount>0)]), and recursive descent (..). Simple dot-paths like \"data.bills\" still work. Returns {path, value} pairs; missing paths → null, wildcard paths → array of matches. Avoids pulling large responses into context. Ignored if body is not valid JSON."),
       }),
     },
     guard(async (args) => handleOpenApiRequest(args.method, args.url, args.body, args.headers ?? {}, args.fields)),
@@ -574,10 +575,17 @@ async function handleOpenApiRequest(
 }
 
 /**
- * Extract dot-path fields from a JSON string. Returns undefined if the body
- * is not valid JSON (caller falls back to returning the raw body). Each path
- * descends the object by "."-separated keys; a missing key or a non-object
- * mid-path yields null for that path.
+ * Extract fields from a JSON string using JSONPath (RFC 9535). Returns
+ * undefined if the body is not valid JSON (caller falls back to returning
+ * the raw body). Each path is evaluated via jsonpath-plus; a missing path
+ * yields null, a single-match path yields the bare value (backward compat
+ * with the old dot-path behavior), and a multi-match path (wildcards [*],
+ * indices [N], recursive descent ..) yields an array of matches.
+ *
+ * Upgraded from a hand-rolled dot-path walker that could not descend into
+ * arrays — HuaweiCloud APIs return arrays (resource lists, bill details),
+ * so account_balances[*].amount must work. jsonpath-plus is the RFC 9535
+ * reference implementation for JS.
  */
 export function extractFields(
   jsonBody: string,
@@ -590,15 +598,18 @@ export function extractFields(
     return undefined;
   }
   return fields.map((path) => {
-    const segments = path.split(".");
-    let current: unknown = parsed;
-    for (const seg of segments) {
-      if (current === null || current === undefined || typeof current !== "object") {
-        current = null;
-        break;
-      }
-      current = (current as Record<string, unknown>)[seg];
-    }
-    return { path, value: current ?? null };
+    // resultType:'value' (the default) returns a plain array of matched
+    // values. The library's TS type is overly broad (JSONPathClass), so we
+    // narrow via unknown — runtime is always an array for 'value'.
+    const result = JSONPath({ path, json: parsed as object, resultType: "value" }) as unknown as unknown[];
+    // Unwrap single-result paths to a bare value for backward compat with
+    // the old dot-path behavior. Paths with wildcards ([*], [N], ..) keep
+    // the array — that's the whole point.
+    const value = result.length === 0
+      ? null
+      : result.length === 1
+        ? result[0]
+        : result;
+    return { path, value };
   });
 }
