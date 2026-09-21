@@ -550,7 +550,26 @@ async function handleOpenApiRequest(
       return ok(JSON.stringify(result));
     }
   }
-  result["body"] = resp.body;
+
+  // Body: when content-type is JSON, embed the parsed object directly — not a
+  // JSON string. This avoids forcing the LLM to json.loads the body twice
+  // (once to unwrap the tool result, once to unwrap the body string). Non-JSON
+  // bodies (OBS XML, plain text) are kept as strings. Empty bodies (204 No
+  // Content, empty 200) omit the body field — body: "" would only confuse.
+  if (resp.body) {
+    const ct = (resp.headers["content-type"] ?? "").toLowerCase();
+    if (ct.includes("json")) {
+      try {
+        result["body"] = JSON.parse(resp.body);
+      } catch {
+        // Malformed JSON despite content-type header — keep raw string so the
+        // caller can see what came back instead of silently dropping it.
+        result["body"] = resp.body;
+      }
+    } else {
+      result["body"] = resp.body;
+    }
+  }
   return ok(JSON.stringify(result));
 }
 

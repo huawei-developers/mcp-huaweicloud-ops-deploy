@@ -15,7 +15,8 @@
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "typecheck:test": "tsc --noEmit -p tsconfig.test.json",
+    "test": "tsc --noEmit -p tsconfig.test.json && vitest run",
     "fetch-examples": "tsx scripts/fetch-examples.ts"
   },
   "engines": {

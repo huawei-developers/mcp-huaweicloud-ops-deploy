@@ -19,7 +19,7 @@ export const SERVER_INSTRUCTIONS = `## huaweicloud-ops-deploy — 操作手册
 
 关键步骤标注 ★ 必须执行。
 
-1. \`auth()\` — 认证（无参，客户端弹 elicitation 表单收 AK/SK）
+1. \`auth()\` — 认证（无参，客户端弹 elicitation 表单收 AK/SK/region）。返回 \`projects\` 列表（每个 project 的 id + name，name 即 region name；一个 region 可能有多个 project，如企业项目）。区域级 API（ECS/IMS/RDS 等含 \`{project_id}\` 路径段的 URL）需要 project_id——从 auth 返回的 projects 里按 region name 取
 2. \`create_deployment(deployment)\` — 建工作目录
 3. \`apiexplorer()\` — 查 API 定义（无参列全部服务，带 productshort 列该服务 API，加 api_name 拿契约；compact=true 返回精简契约，含 method/path/必填+可选参数，body 参数递归展开字段路径，推荐；regions=true 查可用区域+project_id，endpoints=true 查各 region 的 endpoint host 拼 URL）
    \`terraform_examples_export(dest)\` — 导出 .tf 编排示例到 dest（dest 是导出目标目录，不是 deployment 工作区）

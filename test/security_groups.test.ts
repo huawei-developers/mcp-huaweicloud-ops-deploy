@@ -4,9 +4,11 @@ import { extractSecurityGroups } from "../src/extract/security_groups.js";
 describe("extractSecurityGroups", () => {
   // Real terraform show -json structure: planned_values.root_module.resources[]
   // and values.root_module.resources[] put field values in `values`.
+  // Cast as the expected input type — the fixture shape matches PlanJson but
+  // Record<string, unknown> doesn't satisfy PlanResource structurally.
   const makePlan = (resources: Array<Record<string, unknown>>) => ({
     planned_values: { root_module: { resources } },
-  });
+  }) as unknown as Parameters<typeof extractSecurityGroups>[0];
 
   describe("resource filtering", () => {
     it("extracts only _secgroup_rule resources", () => {

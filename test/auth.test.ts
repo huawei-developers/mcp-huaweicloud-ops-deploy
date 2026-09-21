@@ -101,10 +101,13 @@ describe("handleAuth — elicitation decline/cancel/accept", () => {
 
   it("accept with valid content calls persistAndVerify (not inputRequired)", async () => {
     // Mock verifyCredentials via the IAM module so no real HTTP call is made.
+    // Shape MUST match VerifiedResult — tsconfig.test.json type-checks this
+    // (a prior mismatch with project_id→projects silently passed because tsc
+    // excluded test/ and vitest ignores types).
     const iam = await import("../src/auth/iam.js");
     vi.spyOn(iam, "verifyCredentials").mockResolvedValue({
       ok: true,
-      account: { account_id: "id", name: "acct", project_id: "pid" },
+      account: { account_id: "id", name: "acct", projects: [{ id: "pid", name: "cn-north-4" }] },
     });
     const store = await import("../src/auth/store.js");
     vi.spyOn(store, "saveCredentials").mockResolvedValue(undefined);
@@ -116,6 +119,11 @@ describe("handleAuth — elicitation decline/cancel/accept", () => {
     expect(isInputRequiredResult(result)).toBe(false);
     const text = (result as { content?: { text?: string }[] }).content?.[0]?.text ?? "";
     expect(text).toContain("authenticated");
+    // Verify the projects list flows through to the tool output (not just
+    // "authenticated" — the prior mock returned projects: undefined silently).
+    expect(text).toContain("projects");
+    const parsed = JSON.parse(text) as { projects?: unknown[] };
+    expect(parsed.projects).toHaveLength(1);
     vi.restoreAllMocks();
   });
 });
