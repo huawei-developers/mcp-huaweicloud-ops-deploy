@@ -286,7 +286,11 @@ async function persistAndVerify(creds: Credentials, source: "env" | "form" = "fo
           account_id: result.account.account_id,
           name: result.account.name,
         },
-        project_id: result.account.project_id,
+        // Full project list — the LLM picks project_id for a region-scoped API
+        // (ECS/IMS/RDS/...) from here. Each project's `name` is the region name.
+        // Server does not guess a single project_id: region choice is a
+        // deployment decision, and one region may have multiple projects.
+        projects: result.account.projects,
         credential_source: creds.security_token ? "session" : source,
         sts: Boolean(creds.security_token),
       }),

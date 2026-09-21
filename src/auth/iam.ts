@@ -43,8 +43,14 @@ export interface VerifiedAccount {
   account_id: string;
   /** 账号名 (domain name); falls back to account_id if unavailable. */
   name: string;
-  /** The region-scoped project id used for signing context. */
-  project_id?: string | undefined;
+  /**
+   * All projects visible to this AK/SK. Each project's `name` is the region
+   * name (e.g. "cn-north-4"); an account may have multiple projects per
+   * region (enterprise projects) or one per region. The LLM picks the right
+   * project_id for a region-scoped API from this list rather than having
+   * server guess one.
+   */
+  projects: Array<{ id: string; name: string; description?: string }>;
 }
 
 export interface VerifyResult {
@@ -86,13 +92,15 @@ export async function verifyCredentials(creds: Credentials): Promise<VerifyResul
   }
 
   // Parse projects — take domain_id from the first project (all projects of
-  // one AK/SK share the same domain_id).
-  let projects: Array<{ id?: string | undefined; name?: string | undefined; domain_id?: string | undefined }>;
+  // one AK/SK share the same domain_id). Capture description too so the LLM
+  // can distinguish projects when an account has multiple per region.
+  let projects: Array<{ id?: string | undefined; name?: string | undefined; description?: string | undefined; domain_id?: string | undefined }>;
   try {
     const parsed = JSON.parse(body) as { projects?: Array<Record<string, unknown>> };
     projects = (parsed.projects ?? []).map((p) => ({
       id: typeof p["id"] === "string" ? p["id"] : undefined,
       name: typeof p["name"] === "string" ? p["name"] : undefined,
+      description: typeof p["description"] === "string" ? p["description"] : undefined,
       domain_id: typeof p["domain_id"] === "string" ? p["domain_id"] : undefined,
     }));
   } catch (err) {
@@ -121,8 +129,20 @@ export async function verifyCredentials(creds: Credentials): Promise<VerifyResul
 
   // Best-effort account name via /v3/auth/domains. Non-blocking on failure.
   const name = await fetchDomainName(creds, accountId).catch(() => null) ?? accountId;
-  const projectId = first.id;
-  return { ok: true, account: { account_id: accountId, name, project_id: projectId } };
+
+  // Return ALL projects — the LLM picks the project_id for a region-scoped
+  // API (ECS/IMS/RDS/...) from this list. Each project's `name` is the region
+  // name; an account may have one project per region or multiple (enterprise
+  // projects). Server does not guess a single project_id because region choice
+  // is a deployment decision, not an auth decision.
+  const projectList = projects
+    .filter((p): p is { id: string; name: string; description?: string; domain_id?: string } => Boolean(p.id))
+    .map((p) => {
+      const item: { id: string; name: string; description?: string } = { id: p.id, name: p.name ?? "" };
+      if (p.description) item.description = p.description;
+      return item;
+    });
+  return { ok: true, account: { account_id: accountId, name, projects: projectList } };
 }
 
 /**

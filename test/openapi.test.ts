@@ -36,7 +36,7 @@ describe("extractCompactContract", () => {
     expect(contract.host).toBe("bss.myhuaweicloud.com");
     expect(contract.operations).toHaveLength(1);
 
-    const op = contract.operations[0];
+    const op = contract.operations[0]!;
     expect(op.method).toBe("GET");
     expect(op.path).toBe("/v2/bills/customer-bills/monthly-breakdown");
 
@@ -49,7 +49,7 @@ describe("extractCompactContract", () => {
 
   it("each param carries name/in/type/required/description", () => {
     const contract = extractCompactContract(sampleSwagger);
-    const zeroRec = contract.operations[0].optional_params.find((p) => p.name === "include_zero_record");
+    const zeroRec = contract.operations[0]!.optional_params.find((p) => p.name === "include_zero_record");
     expect(zeroRec).toEqual({
       name: "include_zero_record",
       in: "query",
@@ -83,7 +83,7 @@ describe("extractCompactContract", () => {
         SharedPageLimit: { name: "limit", in: "query", required: false, type: "integer", description: "每页数量" },
       },
     };
-    const op = extractCompactContract(swagger).operations[0];
+    const op = extractCompactContract(swagger).operations[0]!;
     expect(op.optional_params).toContainEqual({
       name: "limit", in: "query", type: "integer", required: false, description: "每页数量",
     });
@@ -95,8 +95,8 @@ describe("extractCompactContract", () => {
       paths: { "/v1/test": { get: { parameters: [{ $ref: "#/parameters/Missing" }] } } },
       parameters: {},
     };
-    const op = extractCompactContract(swagger).operations[0];
-    expect(op.optional_params[0].name).toBe("(unresolved ref: Missing)");
+    const op = extractCompactContract(swagger).operations[0]!;
+    expect(op.optional_params[0]!.name).toBe("(unresolved ref: Missing)");
   });
 
   it("body param recursively expands nested $ref and array items into flat field paths", () => {
@@ -143,8 +143,8 @@ describe("extractCompactContract", () => {
         },
       },
     };
-    const op = extractCompactContract(swagger).operations[0];
-    const body = op.required_params[0];
+    const op = extractCompactContract(swagger).operations[0]!;
+    const body = op.required_params[0]!;
     expect(body.fields).toEqual([
       { path: "project_id", type: "string", required: true, description: "项目ID" },
       { path: "product_infos[].cloud_service_type", type: "string", required: true, description: "云服务类型" },
@@ -168,8 +168,8 @@ describe("extractCompactContract", () => {
         },
       },
     };
-    const op = extractCompactContract(swagger).operations[0];
-    expect(op.required_params[0].fields).toBeUndefined();
+    const op = extractCompactContract(swagger).operations[0]!;
+    expect(op.required_params[0]!.fields).toBeUndefined();
   });
 
   it("handles operations with no parameters field", () => {
@@ -177,7 +177,7 @@ describe("extractCompactContract", () => {
       name: "Ping",
       paths: { "/ping": { get: {} } },
     };
-    const op = extractCompactContract(swagger).operations[0];
+    const op = extractCompactContract(swagger).operations[0]!;
     expect(op.required_params).toEqual([]);
     expect(op.optional_params).toEqual([]);
   });
