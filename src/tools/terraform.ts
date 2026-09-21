@@ -327,7 +327,14 @@ async function handlePlan(deployment: string, extraEnv: string[] = [], ctx?: Too
           sgRules = extractSecurityGroups(planJson as never);
         }
       } catch { /* best-effort — plan_json stays null */ }
-      const summary = parsePlanSummary(result.stdout);
+      // Summary: derive from plan_json.resource_changes (authoritative) when
+      // available. parsePlanSummary (stdout "summary" line) is a fallback — but
+      // note terraform 1.9+ emits type:"change_summary" not type:"summary" in
+      // -out mode, so the stdout parse often returns 0. The plan_json path is
+      // version-independent: resource_changes[].change.actions is stable.
+      const summary = planJson
+        ? summaryFromPlanJson(planJson)
+        : parsePlanSummary(result.stdout);
       return {
         exit_code: 0,
         outputs: {
@@ -664,6 +671,35 @@ function parsePlanSummary(stdout: string): { create: number; change: number; des
         break;
       }
     } catch { /* not a JSON line */ }
+  }
+  return summary;
+}
+
+/**
+ * Derive create/change/destroy counts from `terraform show -json <plan>`
+ * resource_changes — the authoritative, version-independent source.
+ *
+ * terraform 1.9+ changed the `plan -json` stdout summary line to
+ * type:"change_summary" (from type:"summary"), so parsePlanSummary returns 0.
+ * The show -json output's resource_changes[].change.actions is stable across
+ * versions: actions is an array like ["create"], ["update"], ["delete"],
+ * ["no-op"], or composite like ["create","delete"] (replace). We take the
+ * first action as the primary — same mapping convention as terraform's own
+ * tfjson (see iac-server's planFromJSON actionFromTFJSON).
+ */
+export function summaryFromPlanJson(planJson: unknown): { create: number; change: number; destroy: number } {
+  const summary = { create: 0, change: 0, destroy: 0 };
+  const rc = (planJson as { resource_changes?: Array<{ change?: { actions?: string[] } }> })?.resource_changes;
+  if (!rc) return summary;
+  for (const r of rc) {
+    const actions = r.change?.actions ?? [];
+    if (actions.length === 0) continue;
+    // Take the first action as primary (matches terraform tfjson convention).
+    const primary = actions[0]!;
+    if (primary === "create") summary.create++;
+    else if (primary === "update") summary.change++;
+    else if (primary === "delete") summary.destroy++;
+    // "no-op" and others (e.g. "read") don't count.
   }
   return summary;
 }
