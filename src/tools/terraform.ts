@@ -390,12 +390,26 @@ function registerDestroy(mcp: McpServer): void {
     {
       title: "terraform destroy",
       description:
-        "Run `terraform destroy`. Permanently deletes ALL cloud resources managed by this " +
+        "Run `terraform destroy`. Permanently deletes cloud resources managed by this " +
         "deployment — irreversible. MUST confirm with the user before calling. " +
         "Safety gate: refuses if tfstate is empty (nothing to destroy) or if .tf files contain " +
-        "plaintext credentials (same scan as init/apply). A future enhancement will return a " +
-        "structured plan -destroy preview for the user to review before the actual destroy.",
-      inputSchema: z.object({ deployment: deploymentParam, env: envParam }),
+        "plaintext credentials (same scan as init/apply). " +
+        "By default destroys ALL resources in the deployment. Pass `target` to destroy only " +
+        "specific resources by address — use this to spare imported (reuse) resources: " +
+        "destroy only the newly-created resources, leaving imported ones in state. " +
+        "Call terraform_state first to list resource addresses. " +
+        "A future enhancement will return a structured plan -destroy preview for the user to review before the actual destroy.",
+      inputSchema: z.object({
+        deployment: deploymentParam,
+        target: z.array(z.string()).optional().describe(
+          "Resource addresses to destroy selectively. e.g. " +
+          "[\"huaweicloud_vpc.main\", \"huaweicloud_vpc_subnet.sub1\"]. " +
+          "Omit to destroy ALL resources (default). " +
+          "Use terraform_state to list addresses. " +
+          "Use this to spare imported resources: destroy only newly-created resources, leaving imported ones in state."
+        ),
+        env: envParam,
+      }),
     },
     guard(async (args, ctx) => {
       // Gate 1: tfstate must be non-empty — there must be resources to destroy.
@@ -414,12 +428,26 @@ function registerDestroy(mcp: McpServer): void {
       return launchTaskResult(
         ctx, args.deployment, "terraform_destroy", "terraform destroy in progress...",
         async () => {
-          const result = await runTerraform(args.deployment, ["destroy", "-auto-approve"], args.env ?? []);
+          const tfArgs = ["destroy", "-auto-approve"];
+          if (args.target && args.target.length > 0) {
+            for (const t of args.target) {
+              tfArgs.push(`-target=${t}`);
+            }
+          }
+          const result = await runTerraform(args.deployment, tfArgs, args.env ?? []);
           if (result.exitCode !== 0) {
             return { exit_code: result.exitCode, outputs: { stdout: result.stdout, stderr: result.stderr } };
           }
           await updateSnapshot(args.deployment, { destroyed: true, last_operation: "terraform_destroy" });
-          return { exit_code: 0, outputs: { stdout: result.stdout, stderr: result.stderr, resources_destroyed: recordedCount } };
+          return {
+            exit_code: 0,
+            outputs: {
+              stdout: result.stdout,
+              stderr: result.stderr,
+              resources_destroyed: args.target ? args.target.length : recordedCount,
+              ...(args.target ? { targeted: args.target } : {}),
+            },
+          };
         },
       );
     }),

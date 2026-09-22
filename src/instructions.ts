@@ -48,6 +48,7 @@ export const SERVER_INSTRUCTIONS = `## huaweicloud-ops-deploy — 操作手册
 
 - 销毁部署：\`terraform_destroy(deployment)\` — 销毁该 deployment 下所有 terraform 管理的资源。huaweicloud-ops-deploy MCP 服务会校验 tfstate 非空 + 无明文凭证。
   ★ 必须向用户列出将要销毁的资源清单，取得明确同意后才能执行。销毁不可逆 ★
+  若部署中含 import 纳管的已有资源，销毁时用 \`terraform_destroy(deployment, target:[...])\` 只销毁本次新建的资源，保留纳管资源。先调 \`terraform_state(deployment)\` 列出资源地址，让用户选择销毁哪些。
 - 同步云上实际状态到 tfstate：\`terraform_refresh(deployment)\` — 当云上资源被外部修改（控制台改配置、手动删资源）后，用 refresh 更新 state，再 plan 看差异。
 - 查看当前 tfstate：\`terraform_state(deployment)\` — 读取 state 结构（资源地址 + 属性 + 安全组规则），用于确认当前部署实际状态。
 
