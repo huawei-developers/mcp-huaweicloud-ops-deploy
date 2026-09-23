@@ -47,7 +47,10 @@ export function registerExistingResourcesTool(mcp: McpServer): void {
         "mode is paginated: if the response has next_marker, pass it back as " +
         "marker to fetch the next page. Also returns balance_summary " +
         "(balances + coupons). Call AFTER update_networking and BEFORE " +
-        "update_cost. Reuse eligibility is a judgment call, not decided here.",
+        "update_cost. Reuse eligibility is a judgment call, not decided here. " +
+        "NOTE: RMS data may lag — resources recently created or destroyed may " +
+        "not reflect immediately. When timing matters (e.g. verifying cleanup " +
+        "after destroy), be aware this data source is not real-time.",
       inputSchema: z.object({
         service: z.string().optional().describe('Filter by RMS provider in detail mode: "vpc"|"ecs"|"rds"|"elb"|...'),
         region: z.string().optional().describe("Filter by region in detail mode. If omitted, details span all regions."),

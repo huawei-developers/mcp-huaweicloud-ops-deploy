@@ -258,6 +258,7 @@ interface CompactContract {
   name: string;
   summary: string;
   host: string;
+  host_note: string;
   base_path: string;
   operations: CompactOperation[];
 }
@@ -304,6 +305,7 @@ export function extractCompactContract(data: ShowApiResponse): CompactContract {
     name: data.name,
     summary: data.summary ?? "",
     host: data.host ?? "",
+    host_note: "This host is APIExplorer's documentation example and may not match your region. Use apiexplorer endpoints=true to get the real per-region endpoint host.",
     base_path: data.base_path ?? "",
     operations,
   };
@@ -538,13 +540,15 @@ async function handleOpenApiRequest(
     const extracted = extractFields(resp.body, fields);
     if (extracted !== undefined) {
       result["extracted"] = extracted;
-      // If ALL extracted values are null, the paths don't exist in the
-      // response. Include top-level keys so the LLM can correct the paths.
-      if (extracted.every((e) => e.value === null)) {
+      // If ANY extracted value is null, at least one path doesn't exist in
+      // the response. Include top-level keys so the LLM can correct the path
+      // — previously this only fired when ALL were null, leaving the LLM to
+      // guess blindly when only some paths were wrong.
+      if (extracted.some((e) => e.value === null)) {
         try {
           const parsed = JSON.parse(resp.body);
           if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-            result["hint"] = `fields not found — top-level keys: ${Object.keys(parsed).join(", ")}`;
+            result["hint"] = `one or more fields not found — top-level keys: ${Object.keys(parsed).join(", ")}`;
           }
         } catch { /* not JSON, no hint */ }
       }
