@@ -63,7 +63,7 @@ describe("extractCompactContract", () => {
     const contract = extractCompactContract(sampleSwagger);
     const keys = Object.keys(contract);
     expect(keys).not.toContain("definitions");
-    expect(keys).toEqual(["name", "summary", "host", "base_path", "operations"]);
+    expect(keys).toEqual(["name", "summary", "host", "host_note", "base_path", "operations"]);
   });
 
   it("resolves $ref parameters from the top-level parameters map", () => {
