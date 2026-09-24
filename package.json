@@ -1,6 +1,6 @@
 {
   "name": "@huaweidevtools/mcp-huaweicloud-ops-deploy",
-  "version": "0.0.1-beta.2",
+  "version": "0.0.1-beta.3",
   "description": "MCP server for deploying, querying, and operating HuaweiCloud infrastructure via the Model Context Protocol.",
   "type": "module",
   "main": "dist/index.js",
