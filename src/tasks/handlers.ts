@@ -17,6 +17,13 @@
  * `tasks: { list: {} }` capability is NOT declared — ext-tasks 2026-07-28
  * removed tasks/list (spec: "Because there is no tasks/list").
  *
+ * Caveat: these handlers dispatch (tasks/get sits in requestMethodKeys, so
+ * the modern era-gate lets it through), but the task *result* path from
+ * tools/call is broken under SDK 2.0.0 — taskToResult puts resultType in
+ * structuredContent where neither era's codec reads it, so the client never
+ * gets a pollable handle. `clientHasTasksCap` returns false until a future
+ * SDK ships a real task runtime; these handlers are dormant.
+ *
  * NOTE: registerCapabilities must be called BEFORE connect() — the guard
  * throws AlreadyConnected if the transport is attached. The caller
  * (createServer) invokes this before mcp.connect(transport).

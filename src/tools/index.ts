@@ -18,8 +18,9 @@ import { registerTerraformTools } from "./terraform.js";
  *   deployment (2) + state files (2) + huaweicloud capability (5) + terraform (9) = 18
  *
  * 6 of the terraform tools (install/init/plan/apply/destroy/refresh) are
- * long-running and return CreateTaskResult (task handle) — the client polls
- * via tasks/get and cancels via tasks/cancel (§8.2).
+ * long-running. Under SDK 2.0.0 they run synchronously with progress
+ * notifications (the task result path is broken — see server.ts); the task
+ * scaffolding is kept for a future SDK with a real task runtime (§8.2).
  */
 export function registerAllTools(mcp: McpServer): void {
   // 部署目录管理 (2)

@@ -12,41 +12,56 @@ export { SERVER_VERSION };
 /**
  * Build the McpServer instance.
  *
- * ## Protocol era: legacy (2025-11-25) only
+ * ## Protocol eras: 2025 legacy and 2026-07-28 modern, both served
  *
- * The server deliberately declares support for the legacy protocol era only,
- * not the modern 2026-07-28 revision. The reason is the Tasks extension.
+ * The server serves whichever era the client negotiates. `serveStdio`'s
+ * opening-exchange classifier inspects the first request for a modern
+ * `_meta` envelope claim (io.modelcontextprotocol/protocolVersion) and pins
+ * one server instance per connection accordingly — it does NOT consult this
+ * server's `supportedProtocolVersions` list, so that field does not gate the
+ * era. A client that sends a 2026-07-28 envelope is served on the modern
+ * era; a legacy `initialize` is served on 2025. Both paths work.
  *
- * Six terraform tools (install/init/plan/apply/destroy/refresh) return
- * `CreateTaskResult` handles that the client polls via `tasks/get` and cancels
- * via `tasks/cancel` — terraform operations run minutes to tens of minutes,
- * so synchronous blocking is not viable. In MCP SDK 2.0.0, Tasks work
- * completely on the legacy era but are unusable on the modern era:
+ * ## Tasks extension: advertised, but the task result path is broken in SDK 2.0.0
  *
- *   1. `tools/call` returning `resultType: "task"` is rejected by the modern
- *      codec's `decodeResult` (src-CX2iR2pK.mjs:4105) — it accepts only
- *      `"complete"` and `"input_required"`.
- *   2. `tasks/get` and `tasks/cancel` are rejected by the modern era's
- *      inbound era-gate (`_onrequest`, src-CX2iR2pK.mjs:6397) because they
- *      sit in the legacy spec method registry and the modern codec treats
- *      them as deleted spec methods, not era-blind extension methods.
+ * Six terraform tools (install/init/plan/apply/destroy/refresh) run minutes to
+ * tens of minutes, so synchronous blocking is not viable. The tasks extension
+ * (`io.modelcontextprotocol/tasks`) is advertised, and `tasks/get` +
+ * `tasks/cancel` handlers are registered on the low-level Server
+ * (tasks/handlers.ts). The modern era-gate dispatches `tasks/get` (it sits in
+ * `requestMethodKeys`, so `codec.hasRequestMethod` returns true).
  *
- * The modern era's only async mechanism, `input_required`, is for mid-flight
- * user input (elicitation), not background long-running work — wrong
- * semantics for terraform. So Tasks and 2026-07-28 are mutually exclusive
- * under SDK 2.0.0. When the SDK ships real `io.modelcontextprotocol/tasks`
- * extension support on the modern era (poll-based `tasks/get` + `tasks/update`
- * per SEP-2663, era-blind dispatch), this can be revisited.
+ * BUT the task *result* path from `tools/call` is broken under SDK 2.0.0 on
+ * both eras, so `launchTaskResult` does not use it today:
  *
- * ## Tasks capability: extension, not core field
+ *   - The SDK has no task runtime. `CreateTaskResult` is `@deprecated
+ *     "2025-11-25 wire vocabulary with no SDK runtime"` — its schema is
+ *     `ResultSchema.extend({ task: TaskSchema })` (a top-level `task` field),
+ *     not the `structuredContent.resultType: "task"` shape `taskToResult`
+ *     produces.
+ *   - Modern era `stampResultType` reads the TOP-LEVEL `result["resultType"]`.
+ *     `taskToResult` puts `resultType` inside `structuredContent`, so the top
+ *     level is absent → stamped `"complete"`. `decodeResult` then sees
+ *     `"complete"` and treats the result as an ordinary completion. The
+ *     client never recognises a task handle and never polls `tasks/get`.
+ *   - Legacy era `decodeResult` strips any top-level `resultType` and also
+ *     returns `kind: "complete"`. Same outcome.
  *
- * Per the 2026-07-28 spec, Tasks moved out of the core capability set into
- * the `io.modelcontextprotocol/tasks` extension. We advertise it under
- * `extensions` (not the deprecated core `tasks` field). The 2025-era
- * `ServerCapabilities` schema also has an `extensions` field, so legacy
- * clients see the extension advertisement. Clients that opt into the
- * extension in their per-request `_meta` may receive `CreateTaskResult`
- * from the long-running tools and poll them via `tasks/get`.
+ * So `clientHasTasksCap` returning true would hand the client a result it
+ * cannot act on — terraform would run in the background with no pollable
+ * handle. Until the SDK ships a real task runtime (poll-based `tasks/get` +
+ * `tasks/update` per SEP-2663, with a result shape the codec recognises),
+ * `launchTaskResult` uses the synchronous + progress-notifications fallback
+ * (`runWithProgress` in terraform.ts) regardless of the client's declared
+ * capability. The task scaffolding (manager.ts, handlers.ts, `launchTerraformTask`,
+ * `taskToResult`) is kept for that future SDK.
+ *
+ * ## supportedProtocolVersions
+ *
+ * Passed the SDK's `SUPPORTED_PROTOCOL_VERSIONS` (the 2025-era list). This
+ * advertises the legacy revisions we accept; it does not constrain which era
+ * `serveStdio` pins (the classifier decides that from the opening message).
+ * A modern-era client is served on 2026-07-28 regardless of this list.
  */
 export function createServer(): McpServer {
   const mcp = new McpServer(
@@ -54,23 +69,19 @@ export function createServer(): McpServer {
     {
       capabilities: {
         tools: {},
-        // Advertise the tasks extension (v2 / 2026-07-28 spec). Tasks moved
-        // out of the core capability set into the io.modelcontextprotocol/tasks
-        // extension. Clients that declare tasks support (via initialize
-        // capabilities in legacy era, or the extension in modern era) receive
-        // task handles from long-running tools and poll via tasks/get. Clients
-        // without it get synchronous execution with progress notifications
-        // (see launchTaskResult in terraform.ts).
-        // We serve legacy era only (SDK 2.0's modern era rejects task RPCs),
-        // but the extensions field is present in both era capability schemas,
-        // so this is visible to clients on either era.
+        // Advertise the tasks extension. The task *result* path is broken
+        // under SDK 2.0.0 (see the method comment), so long-running terraform
+        // tools currently use the synchronous + progress-notifications
+        // fallback regardless of this advertisement. Kept so a future SDK
+        // with a real task runtime can light it up without touching capabilities.
         extensions: {
           "io.modelcontextprotocol/tasks": {},
         },
       },
       instructions: SERVER_INSTRUCTIONS,
-      // Legacy era only. See the method comment for why 2026-07-28 is not
-      // declared: SDK 2.0.0's modern era rejects task creation and task RPCs.
+      // Advertise the 2025-era revisions we accept. Does not gate the era —
+      // see the method comment: serveStdio's classifier pins the era from the
+      // opening message, not from this list.
       supportedProtocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS],
     },
   );
@@ -89,11 +100,10 @@ export function createServer(): McpServer {
  *
  * Uses `serveStdio` rather than the bare `StdioServerTransport`. `serveStdio`
  * owns the opening-exchange classification (it inspects the first request's
- * `_meta` envelope, decides the era, and pins one server instance for the
- * connection lifetime). We serve legacy only today, and the bare transport
- * would work for legacy — but `serveStdio` is the canonical entry the SDK
- * documents for stdio serving, handles both eras correctly, and lets us
- * re-enable the modern era later without touching the entry point.
+ * `_meta` envelope, decides the era — 2026-07-28 modern or 2025 legacy — and
+ * pins one server instance for the connection lifetime). The bare transport
+ * would only serve legacy; `serveStdio` is the canonical entry the SDK
+ * documents for stdio serving and handles both eras, which we support.
  */
 export async function main(): Promise<void> {
   serveStdio(() => createServer());

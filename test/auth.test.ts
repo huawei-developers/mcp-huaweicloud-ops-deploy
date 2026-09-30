@@ -127,3 +127,68 @@ describe("handleAuth — elicitation decline/cancel/accept", () => {
     vi.restoreAllMocks();
   });
 });
+
+/**
+ * Regression: capability detection must read the 2026-07-28 per-request
+ * envelope.
+ *
+ * On that era `Server.getClientCapabilities()` returns undefined — it reads
+ * `initialize`-scoped state the era never populates — so probing only that
+ * accessor made every modern-era client look uninitialized and `auth`
+ * answered "server not initialized — client must complete initialize before
+ * calling tools" while the rest of the session worked fine. In the field this
+ * surfaced as the auth tool being permanently unusable from any client that
+ * negotiated 2026-07-28 (e.g. DSH), with a message that pointed at the client
+ * rather than at this probe.
+ */
+describe("handleAuth — 2026-07-28 era capability detection", () => {
+  // Modern-era server mock: the deprecated accessor is undefined, exactly as
+  // the SDK behaves on this era. Capabilities live on the envelope instead.
+  const makeModernServer = () =>
+    ({ getClientCapabilities: () => undefined }) as unknown as Parameters<typeof handleAuth>[1];
+
+  /** Build a ctx whose envelope carries the given client capabilities. */
+  const makeModernCtx = (capabilities: unknown): ToolCtx =>
+    ({
+      mcpReq: {
+        id: 1,
+        method: "tools/call",
+        inputResponses: undefined,
+        envelope: { "io.modelcontextprotocol/clientCapabilities": capabilities },
+      },
+    }) as unknown as ToolCtx;
+
+  it("uses the envelope when the initialize-scoped accessor is empty", async () => {
+    // Envelope declares elicitation -> must take the elicitation path and
+    // return the form, NOT the "server not initialized" refusal.
+    const result = await handleAuth(makeModernCtx({ elicitation: {} }), makeModernServer());
+    expect(isInputRequiredResult(result)).toBe(true);
+  });
+
+  it("degrades to env vars when the envelope omits elicitation", async () => {
+    const origAk = process.env["HW_ACCESS_KEY"];
+    const origSk = process.env["HW_SECRET_KEY"];
+    delete process.env["HW_ACCESS_KEY"];
+    delete process.env["HW_SECRET_KEY"];
+    try {
+      // No elicitation in the envelope and no env credentials -> the explicit
+      // "client does not support elicitation" message, never the misleading
+      // "server not initialized" one.
+      const result = await handleAuth(makeModernCtx({}), makeModernServer());
+      expect(isInputRequiredResult(result)).toBe(false);
+      const text = (result as { content?: { text?: string }[] }).content?.[0]?.text ?? "";
+      expect(text).toContain("elicitation");
+      expect(text).not.toContain("server not initialized");
+    } finally {
+      if (origAk !== undefined) process.env["HW_ACCESS_KEY"] = origAk;
+      if (origSk !== undefined) process.env["HW_SECRET_KEY"] = origSk;
+    }
+  });
+
+  it("still refuses when neither the envelope nor initialize carries capabilities", async () => {
+    const ctx = { mcpReq: { id: 1, method: "tools/call", inputResponses: undefined } } as unknown as ToolCtx;
+    const result = await handleAuth(ctx, makeModernServer());
+    const text = (result as { content?: { text?: string }[] }).content?.[0]?.text ?? "";
+    expect(text).toContain("server not initialized");
+  });
+});
