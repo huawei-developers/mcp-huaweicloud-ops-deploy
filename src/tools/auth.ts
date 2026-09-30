@@ -1,5 +1,7 @@
 import {
+  CLIENT_CAPABILITIES_META_KEY,
   type CallToolResult,
+  type ClientCapabilities,
   inputRequired,
   inputResponse,
   type McpServer,
@@ -110,14 +112,14 @@ export async function handleAuth(ctx: ToolCtx, server: Server): Promise<ToolResu
   // if others are missing, so a user who exported only AK/SK still sees them
   // pre-filled and just fills region in the form.
   const prefill = readEnvPrefill();
-  const elicitSupport = clientSupportsElicitation(server);
+  const elicitSupport = clientSupportsElicitation(ctx, server);
 
   if (elicitSupport === "uninit") {
-    // Engineering constraint (not a runtime assumption):
-    // server.getClientCapabilities() returns undefined only when initialize
-    // has not completed. Per MCP protocol, the client MUST complete
-    // initialize before sending tools/call. Reaching here means the protocol
-    // was violated — refuse with a clear error rather than guessing.
+    // No capability view at all: on the modern era the request carried no
+    // identity envelope; on the legacy era initialize never completed.
+    // Either way the protocol was violated — refuse rather than guess.
+    // Guessing "supported" leads to a shim rejection the user can't recover
+    // from, and guessing "unsupported" forces an unneeded env-var degradation.
     return fail("server not initialized — client must complete initialize before calling tools");
   }
 
@@ -177,32 +179,64 @@ function elicitForm(prefill: EnvPrefill, messageOverride?: string): ToolResult {
 }
 
 /**
+ * Read the client's declared capabilities for the request being served.
+ *
+ * The two protocol eras carry this in different places, and reading only one
+ * of them is a real bug rather than a theoretical one:
+ *
+ *   - 2026-07-28 (modern): capabilities ride the per-request `_meta` envelope,
+ *     under {@linkcode CLIENT_CAPABILITIES_META_KEY}. `Server.getClientCapabilities()`
+ *     returns `undefined` here — it reads `initialize`-scoped state, which this
+ *     era does not populate (the SDK backfills that accessor per request, but
+ *     only for its own internal gates, not for handlers reading it directly).
+ *   - 2025-era (legacy): capabilities come from the `initialize` handshake, so
+ *     `getClientCapabilities()` is the right source.
+ *
+ * Reading only the legacy accessor made every 2026-era client look like it had
+ * not completed initialize, and `auth` answered with the misleading
+ * "server not initialized — client must complete initialize before calling
+ * tools" — while tools/list and the rest of the session worked fine.
+ *
+ * The envelope is not part of the published `ServerContext` type, so it is read
+ * through a narrow structural cast. If the SDK later exposes it, this is the
+ * one place to change.
+ *
+ * @param ctx - the tool handler context for the request being served.
+ * @param server - the server instance, for the legacy accessor.
+ * @returns the client's capabilities, or `undefined` when genuinely unavailable.
+ */
+function readClientCapabilities(ctx: ToolCtx, server: Server): ClientCapabilities | undefined {
+  const envelope = (ctx.mcpReq as { envelope?: Record<string, unknown> } | undefined)?.envelope;
+  const fromEnvelope = envelope?.[CLIENT_CAPABILITIES_META_KEY];
+  if (fromEnvelope !== undefined) return fromEnvelope as ClientCapabilities;
+  return server.getClientCapabilities();
+}
+
+/**
  * Check whether the client declared elicitation capability.
  *
- * §5.3 capability detection: server.getClientCapabilities() returns the
- * client's initialize-declared capabilities. On 2025-era connections this
- * is the initialize-scoped value; on 2026-era the per-request envelope
- * backfills it (the SDK's getClientCapabilities doc confirms this).
+ * §5.3 capability detection, revised for the 2026-07-28 era: see
+ * {@linkcode readClientCapabilities} for why both eras must be consulted.
  *
- * The legacyShim consults these and rejects inputRequired per-family when
- * elicitation is absent. By probing here BEFORE returning inputRequired,
- * we route to the env-var degradation directly — avoiding a shim rejection
- * that would leave the handler unre-entered (the dead-code bug from P1).
+ * The legacyShim consults the envelope capabilities and rejects inputRequired
+ * per-family when elicitation is absent. By probing here BEFORE returning
+ * inputRequired, we route to the env-var degradation directly — avoiding a shim
+ * rejection that would leave the handler unre-entered (the dead-code bug from
+ * P1).
  *
  * Returns:
  *   "yes"    — elicitation capability declared, use the elicitation path
  *   "no"     — capability absent, degrade to env vars
- *   "uninit" — server.getClientCapabilities() returned undefined, meaning
- *              initialize has not completed. Per MCP protocol, the client
- *              MUST complete initialize before sending tools/call — if we
- *              reach here, the protocol was violated. We refuse rather than
- *              guess, because guessing "supported" leads to a shim rejection
- *              the user can't recover from, and guessing "unsupported"
- *              forces an unneeded env-var degradation. The error tells the
- *              client to complete initialize first.
+ *   "uninit" — no capability view was available at all. On the 2026 era this
+ *              genuinely means the request carried no identity envelope; on the
+ *              legacy era it means initialize never completed. Either way the
+ *              protocol was violated, so we refuse rather than guess: guessing
+ *              "supported" leads to a shim rejection the user can't recover
+ *              from, and guessing "unsupported" forces an unneeded env-var
+ *              degradation.
  */
-function clientSupportsElicitation(server: Server): "yes" | "no" | "uninit" {
-  const caps = server.getClientCapabilities();
+function clientSupportsElicitation(ctx: ToolCtx, server: Server): "yes" | "no" | "uninit" {
+  const caps = readClientCapabilities(ctx, server);
   if (!caps) return "uninit";
   return caps.elicitation ? "yes" : "no";
 }

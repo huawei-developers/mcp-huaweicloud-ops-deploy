@@ -1,4 +1,9 @@
-import type { CallToolResult, McpServer } from "@modelcontextprotocol/server";
+import {
+  CLIENT_CAPABILITIES_META_KEY,
+  type CallToolResult,
+  type ClientCapabilities,
+  type McpServer,
+} from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -110,22 +115,28 @@ export function registerTerraformTools(mcp: McpServer): void {
 let lowLevelServer: McpServer["server"] | null = null;
 
 /**
- * Check whether the connected client declared tasks support.
+ * Whether the long-running terraform tools should use the task path.
  *
- * Reads `Server.getClientCapabilities()` — the initialize-declared client
- * capabilities. In legacy era (what we serve today) this is the only way to
- * detect tasks support; per-request envelopes are a 2026-era mechanism that
- * legacy clients don't send.
+ * Returns false under SDK 2.0.0 — the task *result* path is broken on both
+ * eras (see server.ts): `taskToResult` puts `resultType: "task"` in
+ * `structuredContent`, but the SDK reads the TOP-LEVEL `result["resultType"]`,
+ * stamps it `"complete"`, and the client never recognises a task handle to
+ * poll. Returning true would hand the client an unrecognisable result while
+ * terraform runs in the background with no recoverable handle.
  *
- * Checks both the core `tasks` field (legacy/Inspector) and the
- * `io.modelcontextprotocol/tasks` extension (v2 spec) — either means the
- * client can poll tasks/get.
+ * `tasksCapFromCaps` (the era-aware capability read that mirrors auth.ts
+ * readClientCapabilities) is kept exported so a future SDK with a real task
+ * runtime can re-enable the task path by replacing this function's body.
  *
- * If false → synchronous execution with progress notifications (fallback).
+ * Until then → synchronous execution with progress notifications (fallback).
  */
-function clientHasTasksCap(): boolean {
-  const caps = lowLevelServer?.getClientCapabilities();
-  if (!caps) return false;
+export function clientHasTasksCap(_ctx?: ToolCtx): boolean {
+  void _ctx;
+  return false;
+}
+
+/** Core `tasks` field (legacy/Inspector) OR the tasks extension (v2 spec). */
+export function tasksCapFromCaps(caps: ClientCapabilities): boolean {
   if (caps.tasks) return true;
   const ext = caps.extensions as Record<string, unknown> | undefined;
   return Boolean(ext?.["io.modelcontextprotocol/tasks"]);
@@ -735,17 +746,14 @@ export function summaryFromPlanJson(planJson: unknown): { create: number; change
 /**
  * Run a long-running terraform operation and return the tool-call result.
  *
- * Two paths, chosen by client capability:
+ * Under SDK 2.0.0 the task path is broken (see server.ts + clientHasTasksCap),
+ * so this always takes the synchronous + progress-notifications path today:
+ * periodic `notifications/progress` keep the client's callTool alive (clients
+ * like opencode use `resetTimeoutOnProgress: true`). The handler blocks until
+ * terraform finishes, then returns the final result directly.
  *
- * - **Client supports tasks**: launch as a background task, return a task
- *   handle (standard CallToolResult with content + structuredContent). The
- *   client polls tasks/get.
- *
- * - **Client lacks tasks capability**: run the work synchronously, sending
- *   periodic `notifications/progress` to keep the client's callTool alive
- *   (clients like opencode use `resetTimeoutOnProgress: true`). The handler
- *   blocks until terraform finishes, then returns the final result directly.
- *   This is the MCP-standard progress mechanism — no tasks capability needed.
+ * The task-path branch is retained for a future SDK with a real task runtime;
+ * `clientHasTasksCap` is the single switch to flip.
  *
  * Safety gates MUST run BEFORE calling this (synchronous fast-fail).
  */
@@ -756,7 +764,7 @@ async function launchTaskResult(
   statusMessage: string,
   work: () => Promise<{ exit_code: number; outputs?: Record<string, unknown> }>,
 ): Promise<CallToolResult> {
-  if (clientHasTasksCap()) {
+  if (clientHasTasksCap(ctx)) {
     const task = await launchTerraformTask(deployment, operation, statusMessage, work);
     return taskToResult(task);
   }
@@ -820,6 +828,10 @@ async function runWithProgress(
  * immediately and the operation runs in the background; the caller gets a
  * task handle to poll via tasks/get or cancel via tasks/cancel.
  *
+ * Dormant under SDK 2.0.0 — `launchTaskResult` does not call this today
+ * (clientHasTasksCap returns false; see server.ts for why the task result
+ * path is broken). Kept for a future SDK with a real task runtime.
+ *
  * Safety gates MUST run BEFORE calling this (synchronous fast-fail) — once
  * the task is launched, the terraform subprocess is running.
  */
@@ -859,14 +871,16 @@ export async function launchTerraformTask(
  *
  * Returns a standard CallToolResult with `content` (text the LLM reads to
  * learn the task is running and how to poll it) + `structuredContent`
- * (task metadata for programmatic clients) + `resultType: "task"` (for
- * clients like MCP Inspector that recognize the task result type).
+ * (task metadata for programmatic clients).
  *
- * The `content` field is critical: without it, clients whose SDK parses
- * CallToolResult with a Zod schema that defaults `content` to `[]` and
- * strips unknown keys (resultType/taskId/status) see an empty result —
- * "Tool ran without output". The text content survives that parsing and
- * tells the LLM to poll via tasks/get.
+ * NOTE on `structuredContent.resultType: "task"`: this is NOT recognised by
+ * SDK 2.0.0. Both eras read the TOP-LEVEL `result["resultType"]`, not the one
+ * inside structuredContent — `stampResultType` stamps the top level to
+ * `"complete"` and the client treats the result as an ordinary completion.
+ * This shape is aspirational, matching the ext-tasks 2026-07-28 Stable intent;
+ * it stays so a future SDK that does recognise a task result type works
+ * without changing it. The `content` text is what actually carries the
+ * poll instruction today (and is what the fallback path uses, not this fn).
  *
  * Poll interval guidance: the LLM should call tasks/get with the taskId
  * every pollIntervalMs (5s default) until status is completed/failed/cancelled.
