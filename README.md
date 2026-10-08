@@ -100,6 +100,51 @@ If your MCP client doesn't support elicitation (form-based credential input), se
 
 `HW_SECURITY_TOKEN` is optional (for STS temporary credentials).
 
+### Running more than one client on the same machine
+
+Credentials that are not supplied through env vars are stored per **scope**. A
+scope is a name that separates one client's stored credentials from another's:
+
+```json
+{
+  "mcpServers": {
+    "huaweicloud-ops-deploy": {
+      "command": "node",
+      "args": ["/absolute/path/to/huaweicloud-ops-deploy/dist/index.js"],
+      "env": {
+        "HUAWEICLOUD_OPS_DEPLOY_CREDENTIAL_SCOPE": "my-client"
+      }
+    }
+  }
+}
+```
+
+| | Unset | `my-client` |
+|---|---|---|
+| Keychain account | `default` | `my-client` |
+| Fallback file | `~/.huaweicloud-ops-deploy/credentials.enc` | `~/.huaweicloud-ops-deploy/credentials.my-client.enc` |
+| Keychain service | `huaweicloud-ops-deploy` | unchanged |
+
+The keychain service is the same for every scope; the account name carries the
+separation.
+
+**Default:** `default`. Leaving the variable unset keeps the original
+single-account behavior, so nothing needs migrating.
+
+Set a scope whenever two or more clients — say an IDE extension and a CLI —
+each authenticate this server. Without it they share one credential entry: the
+last client to authenticate wins, and clearing credentials in one leaves the
+other still working.
+
+A scope is 1–64 characters of `[a-z0-9_-]` starting with a letter or digit;
+case and surrounding whitespace are folded, so `DSH` and `dsh` are the same
+scope. **An invalid scope stops the server at startup** rather than falling
+back to `default` — a typo would otherwise silently put the client back on the
+shared entry.
+
+`HW_ACCESS_KEY`/`HW_SECRET_KEY` take priority over any scope: a client that
+carries credentials in its own config never reads the shared storage at all.
+
 ## Usage
 
 Start a conversation with your AI assistant. Typical deployment flow:

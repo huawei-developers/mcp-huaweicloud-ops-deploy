@@ -946,12 +946,29 @@ deployment 状态快照文件。由 `create_deployment` 创建，每次状态变
 
 存储内容：
 ```
-service: "huaweicloud-ops-deploy"
-account: "default"
+service: "huaweicloud-ops-deploy"     # 固定，所有 scope 共用
+account: "<scope>"                    # 默认 "default"
 password: JSON.stringify({ ak, sk, region })
 ```
 
 **service name 公开没关系**——它是命名空间标识，不是秘密。Keychain 的安全模型假设"同用户同机器可信"，真正控制访问的是 OS 层。开源代码暴露 service name 不构成安全风险（同机器同用户的其他进程本来就能调 keyring 取，但这在威胁模型可接受范围内）。
+
+**凭据 scope（多客户端隔离）**
+
+同一台机器上可能有多个 MCP 客户端运行这个 server（IDE 插件、CLI、桌面应用…）。如果它们都写同一条存储，就会互相影响。
+
+隔离靠 scope：环境变量 `HUAWEICLOUD_OPS_DEPLOY_CREDENTIAL_SCOPE` 指定一个名字，它决定 keychain 的 account 与 fallback 文件名。service 始终不变，隔离全部由 account 承担。
+
+| | 未设置 | `my-client` |
+|---|---|---|
+| keychain account | `default` | `my-client` |
+| fallback 文件 | `~/.huaweicloud-ops-deploy/credentials.enc` | `~/.huaweicloud-ops-deploy/credentials.my-client.enc` |
+
+默认值是 `default`，且默认 scope 的文件保持原文件名 `credentials.enc`——**未设置该变量的既有安装无需迁移**，仍能读到原有凭据。
+
+取值 1–64 个 `[a-z0-9_-]`，首字符须为字母或数字；大小写与首尾空白会被归一，故 `DSH` 与 `dsh` 是同一个 scope。**非法值直接让进程启动失败**，不回退默认：scope 是自由字符串，静默回退会把拼错的客户端重新丢回共享条目，正是本机制要消除的行为。另外该值会进入文件名，因此按严格标识符校验（拒绝 `/`、`.`、`../`、前导 `-`），避免路径穿越。
+
+env 变量（`HW_ACCESS_KEY` 等）优先级高于任何 scope：把凭据放进自己客户端配置的客户端，完全不读共享存储。
 
 **优先级 2：机器指纹派生加密文件（fallback）**
 
@@ -964,7 +981,8 @@ password: JSON.stringify({ ak, sk, region })
    (Windows: MachineGuid from registry)
 2. 派生密钥: scrypt(machineId, salt, N=2^15, r=8, p=1, keyLen=32)
 3. 加密: AES-256-GCM(key, plaintext) → ciphertext + nonce + tag
-4. 存储: ~/.huaweicloud-ops-deploy/credentials.enc
+4. 存储: ~/.huaweicloud-ops-deploy/credentials.enc      # 默认 scope
+          ~/.huaweicloud-ops-deploy/credentials.<scope>.enc   # 其余 scope
 ```
 
 文件格式：

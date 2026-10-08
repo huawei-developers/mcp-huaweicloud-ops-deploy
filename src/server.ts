@@ -6,6 +6,7 @@ import { registerTaskHandlers } from "./tasks/handlers.js";
 import { registerPermissionMethods } from "./permission/methods.js";
 import { defaultMode, getMode } from "./permission/mode.js";
 import { registryStatus } from "./permission/registry.js";
+import { SCOPE, SERVICE } from "./auth/store.js";
 import { SERVER_INSTRUCTIONS } from "./instructions.js";
 import { SERVER_VERSION } from "./version.js";
 
@@ -110,6 +111,14 @@ export function createServer(): McpServer {
     );
   }
   registerPermissionMethods(mcp.server);
+
+  // Credential scope, for the same diagnostic reason: it decides which keychain
+  // entry and file this process reads and writes, so "why is it authenticated
+  // as someone else" is answerable from the log alone. Scope and account are
+  // non-secret identifiers — no credential value is ever printed.
+  process.stderr.write(
+    `credentials: scope "${SCOPE}" (keychain account "${SCOPE}" under service "${SERVICE}")\n`,
+  );
 
   return mcp;
 }
