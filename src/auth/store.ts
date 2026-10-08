@@ -25,7 +25,13 @@ import { tryKeychainDelete, tryKeychainGet, tryKeychainSet } from "./keychain.js
 import { fingerprintDecrypt, fingerprintEncrypt } from "./fingerprint.js";
 import { SCOPE_ENV, credentialsFileName, keychainAccount, parseScope } from "./scope.js";
 
-/** Keychain service. Stable across scopes — the account carries the separation. */
+/**
+ * Keychain service. Stable across scopes — the account carries the separation.
+ *
+ * Exported for the test that pins it: the service name is a persistence key,
+ * and renaming it would orphan every stored entry while looking like a
+ * harmless constant change. Nothing in `src/` reads it besides this module.
+ */
 export const SERVICE = "huaweicloud-ops-deploy";
 
 /**
