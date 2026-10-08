@@ -19,9 +19,9 @@
 
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 
-import { tryKeychainGet, tryKeychainSet } from "./keychain.js";
+import { tryKeychainDelete, tryKeychainGet, tryKeychainSet } from "./keychain.js";
 import { fingerprintDecrypt, fingerprintEncrypt } from "./fingerprint.js";
 import { SCOPE_ENV, credentialsFileName, keychainAccount, parseScope } from "./scope.js";
 
@@ -124,6 +124,73 @@ export async function saveCredentials(creds: Credentials, account?: StoredAccoun
     await writeFile(CREDS_FILE, encrypted);
   }
   persistedCache = null;
+}
+
+/**
+ * Clear this process's scope's credentials: session memory, the keychain
+ * entry, and the fallback file.
+ *
+ * STS credentials are session-only, so they are cleared by nulling the
+ * session — nothing persisted to remove. Permanent credentials are removed
+ * from the keychain (if reachable) and the fallback file (if it exists); a
+ * missing file is not an error — the scope may never have written one.
+ *
+ * Env vars (`HW_ACCESS_KEY` etc.) are set by the MCP client in its spawn
+ * config, which this process cannot reach. When they are present the caller
+ * is told so: a reset does not log the client out when the client carries its
+ * own credentials, and that must be visible rather than look like a silent
+ * no-op. The return value never carries a credential.
+ *
+ * Idempotent: a second reset on an already-cleared scope finds nothing to
+ * remove and reports the same state.
+ *
+ * @returns what was cleared and whether env vars still supply credentials.
+ */
+export interface ClearResult {
+  /** The scope whose stored credentials were removed. */
+  scope: string;
+  /** True if the keychain was reached and the delete ran (entry present or not). */
+  keychain: boolean;
+  /** True if the fallback file was deleted, or was already absent. */
+  file: boolean;
+  /**
+   * True if `HW_ACCESS_KEY`/`HW_SECRET_KEY`/`HW_REGION_NAME` are set in this
+   * process's environment. When true, the client still authenticates from env
+   * after reset — the reset cleared only the persisted and session layers.
+   */
+  env_active: boolean;
+}
+
+export async function clearCredentials(): Promise<ClearResult> {
+  // Drop in-memory state first so a concurrent loadCredentials in this process
+  // cannot repopulate from the session while the persisted layers are being
+  // removed.
+  sessionCredentials = null;
+  persistedCache = null;
+
+  // Keychain — best-effort. `false` means unavailable (headless, no D-Bus);
+  // the caller still owns the fallback file.
+  const keychainDeleted = await tryKeychainDelete(SERVICE, ACCOUNT).catch(() => false);
+
+  // Fallback file — a missing file is the cleared state, not a failure.
+  let fileDeleted = false;
+  try {
+    await unlink(CREDS_FILE);
+    fileDeleted = true;
+  } catch (err) {
+    if (err !== null && typeof err === "object" && "code" in err && err.code === "ENOENT") {
+      fileDeleted = true;
+    } else {
+      throw err;
+    }
+  }
+
+  const env_active =
+    Boolean(process.env["HW_ACCESS_KEY"]) &&
+    Boolean(process.env["HW_SECRET_KEY"]) &&
+    Boolean(process.env["HW_REGION_NAME"]);
+
+  return { scope: SCOPE, keychain: keychainDeleted, file: fileDeleted, env_active };
 }
 
 /**

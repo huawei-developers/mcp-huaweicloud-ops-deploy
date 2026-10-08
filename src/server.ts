@@ -4,6 +4,7 @@ import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { registerAllTools } from "./tools/index.js";
 import { registerTaskHandlers } from "./tasks/handlers.js";
 import { registerPermissionMethods } from "./permission/methods.js";
+import { registerCredentialMethods } from "./credential/methods.js";
 import { defaultMode, getMode } from "./permission/mode.js";
 import { registryStatus } from "./permission/registry.js";
 import { SCOPE, SERVICE } from "./auth/store.js";
@@ -111,6 +112,7 @@ export function createServer(): McpServer {
     );
   }
   registerPermissionMethods(mcp.server);
+  registerCredentialMethods(mcp.server);
 
   // Credential scope, for the same diagnostic reason: it decides which keychain
   // entry and file this process reads and writes, so "why is it authenticated
