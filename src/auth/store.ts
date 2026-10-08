@@ -4,7 +4,14 @@
  * DESIGN.zh.md §5.2: OS keychain (macOS Keychain / Windows DPAPI / Linux
  * Secret Service) is preferred. When unavailable (headless Linux, Docker,
  * no keyring daemon), fall back to a machine-fingerprint-derived
- * AES-256-GCM encrypted file at ~/.huaweicloud-ops-deploy/credentials.enc.
+ * AES-256-GCM encrypted file in ~/.huaweicloud-ops-deploy/.
+ *
+ * ## Scoping
+ *
+ * Both layers are namespaced by a credential scope (see `./scope.ts`), so
+ * several MCP clients on one machine do not overwrite each other. The
+ * environment variable channel below is a per-client override on top of that;
+ * the scope is what separates clients that never set it.
  *
  * STS (security_token) credentials are NEVER persisted — they expire. They
  * live only in the in-memory session cache for the process lifetime.
@@ -16,11 +23,25 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 import { tryKeychainGet, tryKeychainSet } from "./keychain.js";
 import { fingerprintDecrypt, fingerprintEncrypt } from "./fingerprint.js";
+import { SCOPE_ENV, credentialsFileName, keychainAccount, parseScope } from "./scope.js";
 
-const SERVICE = "huaweicloud-ops-deploy";
-const ACCOUNT = "default";
+/** Keychain service. Stable across scopes — the account carries the separation. */
+export const SERVICE = "huaweicloud-ops-deploy";
+
+/**
+ * This process's credential scope.
+ *
+ * Parsed at module load, so an invalid value fails the process at startup
+ * rather than at the first tool call — a mistyped scope must not look like
+ * "not authenticated" later. One process serves one client, so one scope per
+ * process is the whole model; the two caches below stay correct without
+ * carrying a scope key.
+ */
+export const SCOPE = parseScope(process.env[SCOPE_ENV]);
+
+const ACCOUNT = keychainAccount(SCOPE);
 const CREDS_DIR = join(homedir(), ".huaweicloud-ops-deploy");
-const CREDS_FILE = join(CREDS_DIR, "credentials.enc");
+const CREDS_FILE = join(CREDS_DIR, credentialsFileName(SCOPE));
 
 /**
  * In-memory session credentials (STS / not persisted).
@@ -150,16 +171,16 @@ async function loadPersistedPayload(): Promise<PersistedPayload> {
  *   4. Machine-fingerprint file (cached)?
  *   5. → "not authenticated"
  *
- * Env vars take priority over keychain so that multiple MCP clients on the
- * same machine don't cross-contaminate credentials: each client sets its own
- * env vars in its server config, and loadCredentials picks those up without
- * touching the shared keychain. A client that sets no env vars falls back to
- * the keychain (shared, single-account).
+ * Env vars take priority over the persisted store so that a client which
+ * chooses to carry credentials in its own server config never touches the
+ * shared layers at all. Clients that set no env vars fall back to this
+ * process's scoped keychain entry and file (see `./scope.ts`), which is what
+ * keeps them apart from one another.
  */
 export async function loadCredentials(): Promise<Credentials> {
   if (sessionCredentials) return sessionCredentials;
   // Env vars — per-process, set by the MCP client config. Takes priority
-  // over the shared keychain to prevent cross-client credential leakage.
+  // over the persisted store to prevent cross-client credential leakage.
   const envAk = process.env["HW_ACCESS_KEY"];
   const envSk = process.env["HW_SECRET_KEY"];
   const envRegion = process.env["HW_REGION_NAME"];
@@ -183,9 +204,9 @@ export async function loadCredentials(): Promise<Credentials> {
  *   1. In-memory session (STS with resolved account, or env-vars mode after
  *      IAM resolution).
  *   2. HW_ACCOUNT_ID env var (set by MCP client config alongside AK/SK env
- *      vars — lets multi-client setups avoid the shared keychain entirely).
- *   3. Keychain/file payload (shared across processes — the single-account
- *      fallback when env vars aren't set).
+ *      vars — lets multi-client setups avoid the persisted layers entirely).
+ *   3. Keychain/file payload for this process's scope — the fallback when
+ *      env vars aren't set.
  *
  * Returns null when none are available. Callers like resolveDomainId (RMS)
  * surface a clear error telling the user to re-run auth or set HW_ACCOUNT_ID.
@@ -193,7 +214,7 @@ export async function loadCredentials(): Promise<Credentials> {
 export async function loadAccount(): Promise<StoredAccount | null> {
   if (sessionCredentials?.account) return sessionCredentials.account;
   if (sessionCredentials) return null; // STS without account resolved
-  // Env-var account_id — per-process, avoids shared keychain.
+  // Env-var account_id — per-process, avoids the persisted layers.
   const envAccountId = process.env["HW_ACCOUNT_ID"];
   if (envAccountId) {
     return { account_id: envAccountId, account_name: process.env["HW_ACCOUNT_NAME"] ?? envAccountId };
