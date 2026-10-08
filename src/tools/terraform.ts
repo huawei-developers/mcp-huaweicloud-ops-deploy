@@ -18,6 +18,7 @@ import { assertNetworking } from "../gates/networking_gate.js";
 import { runCostGate, fillTfHash } from "../gates/cost_gate.js";
 import { resolveTerraformEnv } from "../gates/terraform_env.js";
 import { writeProviderMirrorConfig, HUAWEICLOUD_PROVIDER_MIRRORS } from "../gates/mirror.js";
+import { writesAllowed } from "../permission/mode.js";
 import { createTask, updateTask, type Task } from "../tasks/manager.js";
 import { extractSecurityGroups, type SecgroupRuleView } from "../extract/security_groups.js";
 import { updateSnapshot, stateRecordedResourceCount, backfillAccount } from "../deployment/state.js";
@@ -40,7 +41,46 @@ const MAX_OUTPUT_BYTES = 50 * 1024 * 1024;
 /** Default timeout for terraform commands (30 min — apply can be long). */
 const TERRAFORM_TIMEOUT_MS = 30 * 60 * 1000;
 
+/**
+ * Refuse a cloud-mutating `terraform apply` in read-only mode, at the funnel.
+ *
+ * The tool-level gate in `guard` names `terraform_apply` explicitly, which
+ * covers today's call sites. This check covers tomorrow's: every terraform
+ * invocation in this module goes through `runTerraform`, so deciding here
+ * means a future call site cannot introduce a mutation that the read-only
+ * switch silently fails to see.
+ *
+ * The subject is the `apply` subcommand specifically. `terraform_apply` runs
+ * `apply -auto-approve`; `terraform_refresh` runs
+ * `apply -refresh-only -auto-approve`, which reconciles local state against
+ * the cloud and changes nothing in the account — the same "reads are fine"
+ * rule the HTTP gate applies to GET. Testing for `-refresh-only` rather than
+ * allowing a fixed set of argument vectors keeps that distinction exact: drop
+ * the flag from the refresh path and this refuses it, which is precisely the
+ * edit that would otherwise turn a read into a write unnoticed.
+ *
+ * @param args - argv passed to the terraform binary.
+ * @returns a refusal message, or `undefined` to proceed.
+ */
+function denyTerraformMutation(args: readonly string[]): string | undefined {
+  if (writesAllowed()) return undefined;
+  const subcommand = args[0];
+  if (subcommand !== "apply" && subcommand !== "destroy") return undefined;
+  if (args.includes("-refresh-only")) return undefined;
+  return (
+    `Refused: \`terraform ${subcommand}\` changes HuaweiCloud resources, and this ` +
+    `session is in read-only mode. Ask the user to switch the session to ` +
+    `read-write mode. Read-only alternatives: terraform_plan, terraform_state, ` +
+    `terraform_refresh.`
+  );
+}
+
 export async function runTerraform(cwd: string, args: string[], extraEnv: string[] = []): Promise<TerraformResult> {
+  // Funnel gate — see denyTerraformMutation. Thrown, then turned into a failed
+  // tool result by the same `guard` wrapper that handles every other failure.
+  const refusal = denyTerraformMutation(args);
+  if (refusal !== undefined) throw new Error(refusal);
+
   const { binary, env } = await resolveTerraformEnv(cwd, extraEnv);
   if (env["HW_ACCESS_KEY"]) {
     const account = await loadAccount().catch(() => null);
@@ -368,7 +408,10 @@ function registerApply(mcp: McpServer): void {
         "cost.json exists, tf_hash state machine, no plaintext credentials.",
       inputSchema: z.object({ deployment: deploymentParam, env: envParam }),
     },
-    guard(async (args, ctx) => handleApply(args.deployment, args.env ?? [], ctx)),
+    // Named so the read-only gate can refuse it: this tool creates and
+    // modifies cloud resources, and never calls signedHttp, so the HTTP gate
+    // cannot see it (see permission/gate.ts).
+    guard(async (args, ctx) => handleApply(args.deployment, args.env ?? [], ctx), "terraform_apply"),
   );
 }
 
@@ -422,6 +465,8 @@ function registerDestroy(mcp: McpServer): void {
         env: envParam,
       }),
     },
+    // Named so the read-only gate can refuse it: destroy deletes cloud
+    // resources and never calls signedHttp (see permission/gate.ts).
     guard(async (args, ctx) => {
       // Gate 1: tfstate must be non-empty — there must be resources to destroy.
       // Destroying an empty deployment is a no-op that masks bugs (wrong dir,
@@ -461,7 +506,7 @@ function registerDestroy(mcp: McpServer): void {
           };
         },
       );
-    }),
+    }, "terraform_destroy"),
   );
 }
 

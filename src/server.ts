@@ -3,6 +3,9 @@ import { serveStdio } from "@modelcontextprotocol/server/stdio";
 
 import { registerAllTools } from "./tools/index.js";
 import { registerTaskHandlers } from "./tasks/handlers.js";
+import { registerPermissionMethods } from "./permission/methods.js";
+import { defaultMode, getMode } from "./permission/mode.js";
+import { registryStatus } from "./permission/registry.js";
 import { SERVER_INSTRUCTIONS } from "./instructions.js";
 import { SERVER_VERSION } from "./version.js";
 
@@ -88,6 +91,25 @@ export function createServer(): McpServer {
 
   registerTaskHandlers(mcp.server);
   registerAllTools(mcp);
+
+  // Approval mode is out of band: it is set by the client UI over
+  // permission/set_mode, never by the model, and it is not persisted — a new
+  // process starts at the default. Report the startup state on stderr (the
+  // log channel; stdout carries JSON-RPC) so an operator can see what the
+  // session opened with, and so a registry that failed to load is announced
+  // here rather than discovered from a refused request.
+  const registry = registryStatus();
+  process.stderr.write(
+    `permission: starting in ${getMode()} mode (default ${defaultMode()}), ` +
+      `${registry.patterns} read-only pattern(s) loaded\n`,
+  );
+  if (registry.error !== undefined) {
+    process.stderr.write(
+      `permission: registry unavailable — every non-GET/HEAD request will be ` +
+        `refused in read-only mode: ${registry.error}\n`,
+    );
+  }
+  registerPermissionMethods(mcp.server);
 
   return mcp;
 }

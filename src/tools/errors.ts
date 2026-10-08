@@ -1,5 +1,7 @@
 import type { CallToolResult, InputRequiredResult, ServerContext, TextContent } from "@modelcontextprotocol/server";
 
+import { denyTool } from "../permission/gate.js";
+
 /**
  * Tool handler context — the SDK's ServerContext, directly imported.
  *
@@ -57,11 +59,21 @@ export function fail(message: string): CallToolResult {
  *
  * The handler may return `InputRequiredResult` (§5.3 elicitation) — that
  * passes through unwrapped, the SDK's input-required seam handles it.
+ *
+ * The read-only gate runs first, before the handler body: a refused call must
+ * not reach any part of its implementation, including argument validation that
+ * might touch the filesystem. A tool declared in `CLOUD_MUTATING_TOOLS` is
+ * refused here in read-only mode and never starts.
  */
 export function guard<TArgs extends Record<string, unknown> | undefined>(
   fn: (args: TArgs, ctx: ToolCtx) => Promise<ToolResult>,
+  toolName?: string,
 ): (args: TArgs, ctx: ToolCtx) => Promise<ToolResult> {
   return async (args, ctx) => {
+    if (toolName !== undefined) {
+      const refusal = denyTool(toolName);
+      if (refusal !== undefined) return fail(refusal);
+    }
     try {
       return await fn(args, ctx);
     } catch (err) {

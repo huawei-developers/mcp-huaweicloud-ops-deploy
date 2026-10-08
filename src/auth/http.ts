@@ -22,6 +22,7 @@
 import { signRequest } from "./signer.js";
 import { signObsRequest } from "./obs_signer.js";
 import { loadCredentials, type Credentials } from "./store.js";
+import { denyHttp, PermissionRefusalError } from "../permission/gate.js";
 
 /**
  * Whether a host targets OBS (Object Storage Service).
@@ -54,6 +55,8 @@ export interface SignedHttpResponse {
  *        credentials before they're persisted (auth/iam.ts).
  * @throws if not authenticated (call auth first) — only when `creds` is
  *         omitted and no credentials are stored.
+ * @throws if read-only mode is in effect and the request is not a permitted
+ *         read. The gate is unconditional — see permission/gate.ts.
  */
 export async function signedHttp(
   method: string,
@@ -62,6 +65,19 @@ export async function signedHttp(
   extraHeaders: Record<string, string> = {},
   creds?: Credentials,
 ): Promise<SignedHttpResponse> {
+  // Gate before anything else — before credentials load, before signing. A
+  // refused request must not be signed with the user's key, and must not
+  // consume a credential lookup.
+  //
+  // The gate is unconditional. An earlier revision skipped it when `creds` was
+  // passed explicitly, which made it a back door keyed on a parameter's shape
+  // rather than on what the request actually does. The exemption changed no
+  // behaviour even then — the only two callers that pass `creds` are
+  // `auth/iam.ts`'s credential verification, and both are GET, which the gate
+  // admits before it ever consults the registry.
+  const refusal = denyHttp(method, url);
+  if (refusal !== undefined) throw new PermissionRefusalError(refusal);
+
   const resolved = creds ?? await loadCredentials();
   // OBS uses a separate signature scheme (V2/OBS: HMAC-SHA1+base64). Dispatch
   // by host so openapi_request transparently works on OBS endpoints without
