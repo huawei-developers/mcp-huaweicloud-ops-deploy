@@ -24,6 +24,7 @@ const KEYRING_MODULE = "@napi-rs/keyring";
 interface KeyringEntry {
   getPassword(signal?: AbortSignal | null): Promise<string | undefined>;
   setPassword(password: string, signal?: AbortSignal | null): Promise<void>;
+  deleteCredential(signal?: AbortSignal | null): Promise<boolean>;
 }
 
 interface KeyringModule {
@@ -60,6 +61,26 @@ export async function tryKeychainSet(service: string, account: string, password:
   try {
     const entry = new mod.AsyncEntry(service, account);
     await entry.setPassword(password);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Try to delete from keyring; return false if unavailable.
+ *
+ * `false` means the keyring could not be reached — the caller must still
+ * attempt the fallback file. A present-but-missing entry deletes cleanly
+ * (`deleteCredential` resolves `true` per the binding's contract), so a
+ * second reset on an already-cleared scope is idempotent.
+ */
+export async function tryKeychainDelete(service: string, account: string): Promise<boolean> {
+  const mod = await loadKeyring();
+  if (!mod) return false;
+  try {
+    const entry = new mod.AsyncEntry(service, account);
+    await entry.deleteCredential();
     return true;
   } catch {
     return false;
