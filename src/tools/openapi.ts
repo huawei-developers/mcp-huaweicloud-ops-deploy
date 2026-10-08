@@ -4,6 +4,7 @@ import { JSONPath } from "jsonpath-plus";
 
 import { fail, guard, ok } from "./errors.js";
 import { signedHttp } from "../auth/http.js";
+import { PermissionRefusalError } from "../permission/gate.js";
 
 /**
  * apiexplorer + openapi_request (§3.2).
@@ -519,6 +520,9 @@ async function handleOpenApiRequest(
   try {
     resp = await signedHttp(method.toUpperCase(), parsedUrl, body ?? "", headers);
   } catch (err) {
+    // A read-only refusal is a policy decision, not a transport failure —
+    // return it verbatim rather than dressing it as "request failed".
+    if (err instanceof PermissionRefusalError) return fail(err.message);
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("not authenticated")) return fail("not authenticated — call auth first");
     return fail(`request failed: ${msg}`);

@@ -43,3 +43,6 @@ coverage/
 .deployment.json
 networking.json
 cost.json
+
+# Scratch build made by tests that spawn the server (test/helpers/build-server.ts)
+.test-build/
