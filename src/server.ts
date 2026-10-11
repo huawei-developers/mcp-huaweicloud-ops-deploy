@@ -5,7 +5,7 @@ import { registerAllTools } from "./tools/index.js";
 import { registerTaskHandlers } from "./tasks/handlers.js";
 import { registerPermissionMethods } from "./permission/methods.js";
 import { registerCredentialMethods } from "./credential/methods.js";
-import { defaultMode, getMode } from "./permission/mode.js";
+import { getMode } from "./permission/mode.js";
 import { registryStatus } from "./permission/registry.js";
 import { SCOPE } from "./auth/store.js";
 import { SERVER_INSTRUCTIONS } from "./instructions.js";
@@ -101,10 +101,7 @@ export function createServer(): McpServer {
   // session opened with, and so a registry that failed to load is announced
   // here rather than discovered from a refused request.
   const registry = registryStatus();
-  process.stderr.write(
-    `permission: starting in ${getMode()} mode (default ${defaultMode()}), ` +
-      `${registry.patterns} read-only pattern(s) loaded\n`,
-  );
+  process.stderr.write(`permission: starting in ${getMode()} mode\n`);
   if (registry.error !== undefined) {
     process.stderr.write(
       `permission: registry unavailable — every non-GET/HEAD request will be ` +
