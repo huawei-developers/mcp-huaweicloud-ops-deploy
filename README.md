@@ -145,6 +145,43 @@ shared entry.
 `HW_ACCESS_KEY`/`HW_SECRET_KEY` take priority over any scope: a client that
 carries credentials in its own config never reads the shared storage at all.
 
+### Read-only vs read-write mode
+
+By default the server starts in **read-only** mode: every operation that would
+create, modify, or delete cloud resources is refused. That covers
+`terraform apply`/`destroy`, and every `POST`/`PUT`/`PATCH`/`DELETE` sent
+through `openapi_request`. `plan`, `init`, `refresh` (`-refresh-only`),
+`state` reads, and `GET`/`HEAD` API calls are still allowed.
+
+To let the server actually apply changes, start it in **read-write** mode by
+setting `HW_DEFAULT_PERMISSION` on the server process:
+
+```json
+{
+  "mcpServers": {
+    "huaweicloud-ops-deploy": {
+      "command": "node",
+      "args": ["/absolute/path/to/huaweicloud-ops-deploy/dist/index.js"],
+      "env": {
+        "HW_DEFAULT_PERMISSION": "read_write"
+      }
+    }
+  }
+}
+```
+
+Accepted values (case-insensitive, dashes/underscores interchangeable):
+
+| `read_only` mode | `read_write` mode |
+|---|---|
+| `read_only`, `read-only`, `readonly`, `ro` | `read_write`, `read-write`, `readwrite`, `rw` |
+
+**Default:** `read_only`. The variable is read once at startup and never
+re-read, so the mode the agent runs in cannot be changed by anything the model
+does at runtime. The mode can also be switched mid-session over the
+`permission/set_mode` MCP method (an operator action, not something the model
+calls itself); a new process always opens at the `HW_DEFAULT_PERMISSION` default.
+
 ## Usage
 
 Start a conversation with your AI assistant. Typical deployment flow:
