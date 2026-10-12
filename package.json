@@ -1,6 +1,6 @@
 {
   "name": "@huaweidevtools/mcp-huaweicloud-ops-deploy",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "MCP server for deploying, querying, and operating HuaweiCloud infrastructure via the Model Context Protocol.",
   "type": "module",
   "main": "dist/index.js",
@@ -33,6 +33,7 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "@modelcontextprotocol/node": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
     "@napi-rs/keyring": "^2.1.0",
     "adm-zip": "^0.6.1",

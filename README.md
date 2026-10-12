@@ -182,6 +182,36 @@ does at runtime. The mode can also be switched mid-session over the
 `permission/set_mode` MCP method (an operator action, not something the model
 calls itself); a new process always opens at the `HW_DEFAULT_PERMISSION` default.
 
+### HTTP / remote mode
+
+By default the server runs over **stdio** (spawned as a child process by an
+MCP client). To serve it over HTTP instead — for a remote client, a shared
+dev box, or behind a reverse proxy — pass `--transport http`:
+
+```bash
+npx @huaweidevtools/mcp-huaweicloud-ops-deploy --transport http --port 9527
+```
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--transport` | `stdio` | `stdio` (default) or `http` |
+| `--port` | `9527` | HTTP listen port (ignored for stdio) |
+| `--host` | `127.0.0.1` | Bind address. Default is loopback only |
+
+The server speaks the MCP Streamable HTTP transport, serving both the
+2025-era and 2026-07-28 protocol revisions (the same as stdio).
+
+**Loopback by default.** Credentials, permission mode, and the credential
+scope are all process-wide state — HTTP mode keeps the same single-operator
+model stdio has, which is only safe if the process is reachable from one
+machine. Binding a non-loopback address (`--host 0.0.0.0`) lets other
+machines reach this process's stored credentials; only do that behind a
+reverse proxy that handles authentication and network isolation.
+
+DNS-rebinding and cross-origin requests are rejected by default
+(`Host`/`Origin` header guards, loopback-allowed). A non-browser MCP client
+that sends no `Origin` header passes.
+
 ## Usage
 
 Start a conversation with your AI assistant. Typical deployment flow:
