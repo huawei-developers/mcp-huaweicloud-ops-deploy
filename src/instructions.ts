@@ -79,7 +79,7 @@ cn-north-1/cn-north-4/cn-east-3 等大陆区域，80/443 端口对外提供 web 
 ### 产品文档入口
 
 需要某个华为云产品的介绍、功能说明、规格限制、使用限制、计费模式等**文档知识**（不是 API 契约、不是资源现状）时，
-取文档索引，须带浏览器完整 UA 访问避免人机校验：https://support.huaweicloud.com/llms.txt
+取文档索引：https://support.huaweicloud.com/llms.txt
 
 该索引按产品分类列出华为云全部产品的文档入口（\`[产品名](该产品的 llms.txt): 一句话简介\`）。
 先读它定位产品，再取对应产品自己的 llms.txt 拿细节。
