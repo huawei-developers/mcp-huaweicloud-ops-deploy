@@ -1,5 +1,7 @@
-import { McpServer, SUPPORTED_PROTOCOL_VERSIONS } from "@modelcontextprotocol/server";
+import { McpServer, SUPPORTED_PROTOCOL_VERSIONS, createMcpHandler } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
+import { toNodeHandler, localhostHostValidation, localhostOriginValidation } from "@modelcontextprotocol/node";
+import { createServer as createHttpServer } from "node:http";
 
 import { registerAllTools } from "./tools/index.js";
 import { registerTaskHandlers } from "./tasks/handlers.js";
@@ -142,4 +144,91 @@ export async function main(): Promise<void> {
     process.stdin.on("close", () => resolve());
     process.stdin.on("end", () => resolve());
   });
+}
+
+/**
+ * Default HTTP listen port. Overridable via `--port`.
+ *
+ * 9527 — not claimed by any common dev server (3000/5173/8080 all collide
+ * with React/Vite/Express defaults), and memorable. Overridable via `--port`.
+ */
+const DEFAULT_HTTP_PORT = 9527;
+
+/**
+ * Default bind address. Loopback only — see `serveHttp` for why.
+ */
+const DEFAULT_HTTP_HOST = "127.0.0.1";
+
+/**
+ * Start the server over HTTP (Streamable HTTP transport) and run until killed.
+ *
+ * Unlike stdio (one client spawns one process), HTTP serves multiple requests
+ * over one process. The same single-operator model still holds: credential
+ * scope, permission mode, and the in-memory credential cache are process-wide,
+ * so every request on this server shares one identity. Binding loopback keeps
+ * that model sound — a non-loopback bind would let other machines reach this
+ * process's stored credentials, which is not what `HW_DEFAULT_PERMISSION` /
+ * credential scope were designed for. Pass `--host 0.0.0.0` to override, but
+ * only behind a reverse proxy that handles auth and network isolation.
+ *
+ * `createMcpHandler` owns the same opening-exchange era classification that
+ * `serveStdio` does: a request carrying the 2026-07-28 `_meta` envelope is
+ * served modern, a legacy `initialize` is served on 2025. The factory
+ * (`createServer`) is the same one stdio uses, so both eras get the same
+ * tools. Modern traffic is served per-request (a fresh instance per
+ * exchange); legacy traffic is served stateless (a fresh instance per
+ * request). Neither holds session state on the server side beyond the
+ * process-wide caches, which is consistent with how stdio already behaves.
+ *
+ * `toNodeHandler` adapts the handler's web-standard `.fetch(Request)` to
+ * Node's `(req, res)` shape. The Host/Origin guards (`localhostHostValidation`
+ * / `localhostOriginValidation`) reject DNS-rebinding and cross-origin
+ * requests — the same protection the SDK's framework app factories apply,
+ * composed here by hand because plain `node:http` has no middleware chain.
+ */
+export async function serveHttp(
+  port: number = DEFAULT_HTTP_PORT,
+  host: string = DEFAULT_HTTP_HOST,
+): Promise<void> {
+  const handler = createMcpHandler(() => createServer());
+  const nodeHandler = toNodeHandler(handler, {
+    onerror: (err) => process.stderr.write(`http: handler error: ${err.message}\n`),
+  });
+  const validateHost = localhostHostValidation();
+  const validateOrigin = localhostOriginValidation();
+
+  const server = createHttpServer(async (req, res) => {
+    // The guards answer rejected requests with 403 themselves and return
+    // false; the handler must not touch the request further.
+    if (!validateHost(req, res) || !validateOrigin(req, res)) return;
+    // `toNodeHandler`'s signature takes the SDK's duck-typed
+    // NodeIncomingMessageLike/NodeServerResponseLike (optional fields without
+    // `| undefined`, for consumers that pass lighter shapes). Under our
+    // `exactOptionalPropertyTypes: true` the real IncomingMessage — whose
+    // `method` is `string | undefined` — does not structurally match. The
+    // adapter accepts the real Node types at runtime; the cast bridges the
+    // strictness gap without weakening the rest of the codebase.
+    await nodeHandler(req as unknown as Parameters<typeof nodeHandler>[0], res);
+  });
+
+  // The server emits 'error' on bind failure (EADDRINUSE etc.) — listen so it
+  // surfaces as a Fatal: line via index.ts's .catch() rather than an uncaught
+  // exception. The 'listening' event fires once bound successfully.
+  const isLoopback = host === "127.0.0.1" || host === "localhost" || host === "::1";
+  const bindLabel = isLoopback ? " (loopback)" : "";
+
+  server.on("error", (err) => {
+    const code = (err as NodeJS.ErrnoException).code;
+    process.stderr.write(`http: ${code ?? "error"}: ${err.message}\n`);
+    process.exit(1);
+  });
+
+  server.listen(port, host, () => {
+    process.stderr.write(`http: listening on http://${host}:${port}${bindLabel}\n`);
+  });
+
+  // Keep the process alive until interrupted. Unlike stdio there is no stdin
+  // lifecycle to tie to, so resolve never — the process exits on SIGINT/SIGTERM
+  // or on a bind error above.
+  await new Promise<void>(() => {});
 }
