@@ -942,7 +942,9 @@ deployment 状态快照文件。由 `create_deployment` 创建，每次状态变
 |---|---|---|
 | macOS | Keychain | `@napi-rs/keyring` → `security` 命令 |
 | Windows | DPAPI (CryptProtectData) | `@napi-rs/keyring` → Windows Credential Manager |
-| Linux | Secret Service (GNOME Keyring / KWallet) | `@napi-rs/keyring` → D-Bus |
+| Linux | Secret Service (GNOME Keyring / KWallet) | `@napi-rs/keyring` → D-Bus，**钉死 `store: 'secret-service'`** |
+
+**Linux 必须钉死 Secret Service，禁止退回内核 keyring。** `@napi-rs/keyring` 在 Linux 上默认是"Secret Service 优先，不可用时静默 fallback 到内核 keyutils keyring"。这个 fallback 在本项目里是有害的：keyutils 把凭据放在内核内存里，**重启即失**，于是写入会"成功"，但机器重启后静默变成未认证——最糟的失败形态（看起来存好了，很久以后才暴露）。因此构造 `AsyncEntry` 时显式传 `{ linux: { store: 'secret-service' } }`：Secret Service 不可用时构造函数**直接抛错**（binding 文档明确 "no silent fallback"），本项目的 try/catch 把它转成 `null`/`false`，store.ts 随即落到优先级 2 的机器指纹加密文件——那才是真正持久的层。该选项仅在 Linux 上传入（其他平台无意义）。
 
 存储内容：
 ```

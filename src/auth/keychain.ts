@@ -16,7 +16,25 @@
  * The import is dynamic so the server can start even if the native binding
  * fails to load on an unsupported platform — the fallback path still works.
  *
- * API: `new AsyncEntry(service, username)` → `.getPassword()` / `.setPassword()`.
+ * API: `new AsyncEntry(service, username, options?)` → `.getPassword()` /
+ * `.setPassword()`.
+ *
+ * ## Linux: pinned to Secret Service, no kernel-keyring fallback
+ *
+ * The binding's default on Linux is to try Secret Service and then *silently
+ * fall back* to the kernel keyutils keyring whenever Secret Service is
+ * unavailable (no D-Bus session, no keyring daemon, a container). That
+ * fallback is wrong here: keyutils keeps credentials in kernel memory and
+ * drops them on reboot, so a write that reports success would silently stop
+ * authenticating after a restart — the worst failure shape, since it looks
+ * like "storage worked" until much later.
+ *
+ * So entries are pinned with `{ linux: { store: 'secret-service' } }`. When
+ * Secret Service is unavailable the constructor throws instead of falling
+ * back; this module's try/catch turns that into `null`/`false`, and the
+ * caller (store.ts) routes to the machine-fingerprint file — a store that
+ * genuinely persists. The pin is Linux-only (the option is ignored
+ * elsewhere), so it is passed on Linux only.
  */
 
 const KEYRING_MODULE = "@napi-rs/keyring";
@@ -27,9 +45,28 @@ interface KeyringEntry {
   deleteCredential(signal?: AbortSignal | null): Promise<boolean>;
 }
 
-interface KeyringModule {
-  AsyncEntry: new (service: string, username: string) => KeyringEntry;
+/** Linux credential store the binding can be pinned to (see the module doc). */
+interface LinuxEntryOptions {
+  store?: "secret-service" | "keyutils";
 }
+
+interface EntryOptions {
+  linux?: LinuxEntryOptions;
+}
+
+interface KeyringModule {
+  AsyncEntry: new (service: string, username: string, options?: EntryOptions | null) => KeyringEntry;
+}
+
+/**
+ * Entry options: pin to Secret Service on Linux, nothing elsewhere.
+ *
+ * See the module doc for why the keyutils fallback must be refused. On other
+ * platforms the option bag is meaningless (and ignored by the binding), so it
+ * is omitted entirely rather than passed as a no-op.
+ */
+const ENTRY_OPTIONS: EntryOptions | undefined =
+  process.platform === "linux" ? { linux: { store: "secret-service" } } : undefined;
 
 async function loadKeyring(): Promise<KeyringModule | null> {
   try {
@@ -46,7 +83,7 @@ export async function tryKeychainGet(service: string, account: string): Promise<
   const mod = await loadKeyring();
   if (!mod) return null;
   try {
-    const entry = new mod.AsyncEntry(service, account);
+    const entry = new mod.AsyncEntry(service, account, ENTRY_OPTIONS);
     const password = await entry.getPassword();
     return password ?? null;
   } catch {
@@ -59,7 +96,7 @@ export async function tryKeychainSet(service: string, account: string, password:
   const mod = await loadKeyring();
   if (!mod) return false;
   try {
-    const entry = new mod.AsyncEntry(service, account);
+    const entry = new mod.AsyncEntry(service, account, ENTRY_OPTIONS);
     await entry.setPassword(password);
     return true;
   } catch {
@@ -79,7 +116,7 @@ export async function tryKeychainDelete(service: string, account: string): Promi
   const mod = await loadKeyring();
   if (!mod) return false;
   try {
-    const entry = new mod.AsyncEntry(service, account);
+    const entry = new mod.AsyncEntry(service, account, ENTRY_OPTIONS);
     await entry.deleteCredential();
     return true;
   } catch {
