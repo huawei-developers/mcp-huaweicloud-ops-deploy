@@ -1,6 +1,7 @@
 import type { CallToolResult, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
+import { READ_ONLY_LOCAL } from "./annotations.js";
 import { fail, guard, ok } from "./errors.js";
 import { deploymentParam } from "./index.js";
 import { runTerraform } from "./terraform.js";
@@ -25,7 +26,7 @@ export function registerProviderSchemaTool(mcp: McpServer): void {
   mcp.registerTool(
     "provider_schema",
     {
-      title: "提取 provider schema",
+      title: "Extract provider schema",
       description:
         "Extract the schema of the locally installed huaweicloud terraform " +
         "provider by running `terraform providers schema -json` in the deployment " +
@@ -35,6 +36,7 @@ export function registerProviderSchemaTool(mcp: McpServer): void {
         "returns huaweicloud_vpc, huaweicloud_vpc_route, ...). With resource_type: " +
         "return that type's full schema (attributes, types, required-ness, nested " +
         "blocks). Call AFTER terraform_init.",
+      annotations: READ_ONLY_LOCAL,
       inputSchema: z.object({
         deployment: deploymentParam,
         resource_type: z.string().optional().describe('e.g. "huaweicloud_compute_instance"'),

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { LOCAL_WRITE } from "./annotations.js";
 import { fail, guard, ok } from "./errors.js";
 import { deploymentParam } from "./index.js";
 import { NetworkingSchema } from "../schemas/networking.js";
@@ -22,7 +23,7 @@ export function registerNetworkingTool(mcp: McpServer): void {
   mcp.registerTool(
     "update_networking",
     {
-      title: "组网设计落盘",
+      title: "Write networking design",
       description:
         "Write or update networking.json for a deployment. Three layers: " +
         "topology (VPC/subnets/route_tables/security_groups), network_objects " +
@@ -30,6 +31,7 @@ export function registerNetworkingTool(mcp: McpServer): void {
         "optional network attach). Design this before writing .tf — it is the " +
         "physical networking contract. Validates structure and A-layer reference " +
         "consistency (id uniqueness, subnet/sg/eip/nat refs).",
+      annotations: LOCAL_WRITE,
       inputSchema: z.object({
         deployment: deploymentParam,
         networking: NetworkingSchema,

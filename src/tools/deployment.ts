@@ -2,6 +2,7 @@ import type { CallToolResult, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { readFile } from "node:fs/promises";
 
+import { LOCAL_DESTRUCTIVE, LOCAL_WRITE } from "./annotations.js";
 import { fail, guard, ok } from "./errors.js";
 import { deploymentParam } from "./index.js";
 import {
@@ -28,12 +29,13 @@ export function registerDeploymentTools(mcp: McpServer): void {
   mcp.registerTool(
     "create_deployment",
     {
-      title: "创建部署工作区",
+      title: "Create deployment",
       description:
         "Create or reuse a deployment workspace directory. If the directory does " +
         "not exist, create it and write .deployment.json (state snapshot). Does NOT " +
         "create networking.json/cost.json placeholders. If the directory exists but " +
         "is not a deployment (non-empty, no .deployment.json), return an error.",
+      annotations: LOCAL_WRITE,
       inputSchema: z.object({ deployment: deploymentParam }),
     },
     guard(async (args) => handleCreate(args.deployment)),
@@ -42,11 +44,12 @@ export function registerDeploymentTools(mcp: McpServer): void {
   mcp.registerTool(
     "delete_deployment",
     {
-      title: "删除部署工作区",
+      title: "Delete deployment",
       description:
         "Delete a deployment workspace directory. Refuses if the deployment still " +
         "has live cloud resources — checks terraform.tfstate; if resources exist, " +
         "run terraform_destroy first. If no resources, removes the directory.",
+      annotations: LOCAL_DESTRUCTIVE,
       inputSchema: z.object({ deployment: deploymentParam }),
     },
     guard(async (args) => handleDelete(args.deployment)),

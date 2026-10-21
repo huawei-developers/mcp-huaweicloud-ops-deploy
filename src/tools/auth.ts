@@ -10,6 +10,7 @@ import {
 import { z } from "zod";
 
 import { type ToolCtx, type ToolResult, fail, guard, ok } from "./errors.js";
+import { READ_ONLY_CLOUD } from "./annotations.js";
 import { saveCredentials, type Credentials } from "../auth/store.js";
 import { verifyCredentials } from "../auth/iam.js";
 
@@ -57,7 +58,7 @@ export function registerAuthTool(mcp: McpServer): void {
   mcp.registerTool(
     "auth",
     {
-      title: "HuaweiCloud 认证",
+      title: "Authenticate with HuaweiCloud",
       description:
         "Authenticate with HuaweiCloud. Takes NO parameters — AK/SK/region are " +
         "collected via MCP elicitation (a form pops up for the user), so " +
@@ -67,6 +68,7 @@ export function registerAuthTool(mcp: McpServer): void {
         "persisted. Subsequent tools read credentials automatically. If " +
         "elicitation is unsupported, falls back to HW_ACCESS_KEY/HW_SECRET_KEY/" +
         "HW_REGION_NAME env vars.",
+      annotations: READ_ONLY_CLOUD,
       inputSchema: z.object({}),
     },
     guard(async (_args, ctx) => handleAuth(ctx, server)),

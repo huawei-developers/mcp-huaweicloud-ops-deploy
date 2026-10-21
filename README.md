@@ -236,6 +236,21 @@ Start a conversation with your AI assistant. Typical deployment flow:
 | HuaweiCloud capability | `auth`, `apiexplorer`, `openapi_request`, `list_existing_resources`, `terraform_examples_export` |
 | Terraform execution | `terraform_install`, `terraform_init`, `terraform_plan`, `terraform_apply`, `terraform_destroy`, `terraform_refresh`, `terraform_state`, `terraform_import`, `provider_schema` |
 
+### Tool annotations (risk hints)
+
+Every tool declares the standard MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`), so a client can surface the risk level before calling. `tools/list` carries them.
+
+| | Tools |
+|---|---|
+| **Read-only** (changes no cloud resource) | `apiexplorer`, `auth`, `list_existing_resources`, `terraform_plan`, `terraform_refresh`, `terraform_state`, `terraform_import`, `provider_schema` |
+| **Destructive** (can delete) | `delete_deployment`, `openapi_request`, `terraform_apply`, `terraform_destroy` |
+| **Other writes** | `create_deployment`, `update_networking`, `update_cost`, `terraform_install`, `terraform_init`, `terraform_examples_export` |
+
+Two things to know:
+
+- **These are hints, not a safety boundary.** The MCP spec classes them as advisory, and a client must not rely on them alone. Enforcement stays server-side: `terraform_apply`/`terraform_destroy` are gated by read-write mode, the cost/tf_hash gate, and the credential scanner; `openapi_request` mutations are gated by read-only mode. Annotations only help a well-behaved client decide when to ask for confirmation.
+- **`openapi_request` is marked destructive** even though it serves safe `GET`s. Its annotation is tool-level and cannot vary by argument, so it reflects the worst case — it can issue a `DELETE`. The per-argument nuance lives in the tool description.
+
 ## Development
 
 ```bash

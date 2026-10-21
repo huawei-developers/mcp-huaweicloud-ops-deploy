@@ -4,6 +4,7 @@ import { JSONPath } from "jsonpath-plus";
 
 import { fail, guard, ok } from "./errors.js";
 import { signedHttp } from "../auth/http.js";
+import { CLOUD_MUTABLE_API, READ_ONLY_CLOUD } from "./annotations.js";
 import { PermissionRefusalError } from "../permission/gate.js";
 
 /**
@@ -35,7 +36,7 @@ export function registerOpenApiTools(mcp: McpServer): void {
   mcp.registerTool(
     "apiexplorer",
     {
-      title: "查询华为云 API 定义",
+      title: "Query HuaweiCloud API definitions",
       description:
         "Discover HuaweiCloud API definitions via APIExplorer. Five levels: " +
         "(1) no args → list all cloud services (productshort + api_count); " +
@@ -47,6 +48,7 @@ export function registerOpenApiTools(mcp: McpServer): void {
         "(4) regions=true → regions where the service/API is available (region_id + project_id); " +
         "(5) endpoints=true → per-region endpoint hosts for the service (domain_url). " +
         "Use these to find correct endpoints and parameters before calling openapi_request.",
+      annotations: READ_ONLY_CLOUD,
       inputSchema: z.object({
         productshort: z.string().optional().describe('Service short name, obtained by calling this tool without productshort to list all services. e.g. "ECS"|"VPC"|"RDS"|"EIP"|"ELB"|"ModelArts". Omit on first call to get the full list.'),
         api_name: z.string().optional().describe("API name within the service, e.g. ListCloudServers. Requires productshort."),
@@ -63,13 +65,14 @@ export function registerOpenApiTools(mcp: McpServer): void {
   mcp.registerTool(
     "openapi_request",
     {
-      title: "调用华为云 API",
+      title: "Call HuaweiCloud API",
       description:
         "Send a signed HTTP request to a HuaweiCloud API endpoint. Credentials " +
         "are read from secure storage and used to sign the request — AK/SK are " +
         "never exposed in arguments. GET requests are safe; POST/PUT/DELETE " +
         "execute but the response includes a warning to inform the user of " +
         "consequences.",
+      annotations: CLOUD_MUTABLE_API,
       inputSchema: z.object({
         method: z.enum(["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"]).describe("HTTP method"),
         url: z.string().describe("Full URL, e.g. https://ecs.cn-north-4.myhuaweicloud.com/v1/..."),
