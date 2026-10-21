@@ -3,6 +3,7 @@ import { z } from "zod";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { LOCAL_WRITE } from "./annotations.js";
 import { fail, guard, ok } from "./errors.js";
 import { deploymentParam } from "./index.js";
 import { CostSchema, type CostItem } from "../schemas/cost.js";
@@ -25,13 +26,14 @@ export function registerCostTool(mcp: McpServer): void {
   mcp.registerTool(
     "update_cost",
     {
-      title: "规格计费落盘",
+      title: "Write cost estimate",
       description:
         "Write or update cost.json for a deployment. Records spec + charging + " +
         "price + source (reuse/new) per component. Server validates structure + " +
         "A-layer refs (resource → networking components), auto-computes " +
         "total_monthly (sum of new items only), sets tf_hash=null, writes " +
         "estimated_at. Called BEFORE writing .tf (cost.json precedes .tf).",
+      annotations: LOCAL_WRITE,
       inputSchema: z.object({
         deployment: deploymentParam,
         cost: CostSchema,

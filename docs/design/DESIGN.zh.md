@@ -150,7 +150,26 @@ Terraform 执行（8）：
   terraform_state(deployment)
 ```
 
-### 3.2 工具详细定义
+### 3.2 工具注解（MCP annotations / SEP-1416）
+
+每个工具在 `tools/list` 上声明 MCP 标准的四个注解，让客户端在调用前就知道风险级别：
+
+| 注解 | 含义 |
+|---|---|
+| `readOnlyHint` | 是否修改**云资源**（本项目的判据，见下） |
+| `destructiveHint` | 是否可能删除/不可逆 |
+| `idempotentHint` | 同参数重试是否无副作用 |
+| `openWorldHint` | 是否与外部系统交互（华为云 API、下载） |
+
+**这是 hint，不是安全边界。** 规范把它定义为 advisory，客户端不得单凭它做决定；SDK 只透传、不读它做任何 gate（已核对 SDK 2.0.0）。**强制仍全部在 server 端**（§6 的各道门）。注解的作用只是让守规矩的客户端知道"这个要不要弹确认"。
+
+**`readOnlyHint` 的判据是"是否修改云资源"**，不是规范字面的"是否修改环境"。理由：本项目真正要区分的是"能不能创建/变更/删除计费资源"。因此 `terraform_plan`/`terraform_refresh`/`terraform_import` 虽写 state，仍标只读；`auth` 虽写 keychain，仍标只读——都不碰云资源。
+
+**`openapi_request` 是例外，标为破坏性**：它既能安全 GET 也能 DELETE，而注解是**工具级**的、无法随参数变化，只能取最坏情况（`readOnly=false, destructive=true, idempotent=false`）。标成只读会让客户端对一次 DELETE 跳过确认——正是注解机制要防的失败。参数级差异放在工具描述里。
+
+集中定义在 `src/tools/annotations.ts`（7 个 preset：`READ_ONLY_CLOUD` / `READ_ONLY_LOCAL` / `LOCAL_WRITE` / `LOCAL_DESTRUCTIVE` / `CLOUD_WRITE` / `CLOUD_DESTRUCTIVE` / `CLOUD_MUTABLE_API`），逐工具审过后引用，不批量套——错标的危害大于不标（尤其错误地标 `readOnly: true`）。
+
+### 3.3 工具详细定义
 
 #### create_deployment
 

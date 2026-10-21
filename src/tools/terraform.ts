@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 
 import { fail, guard, ok, type ToolCtx } from "./errors.js";
+import { CLOUD_DESTRUCTIVE, CLOUD_WRITE, READ_ONLY_CLOUD, READ_ONLY_LOCAL } from "./annotations.js";
 import { deploymentParam } from "./index.js";
 import { assertNoCredentials } from "../gates/credential_gate.js";
 import { extractArchive } from "../utils/tar.js";
@@ -188,12 +189,13 @@ function registerInstall(mcp: McpServer): void {
   mcp.registerTool(
     "terraform_install",
     {
-      title: "安装 terraform",
+      title: "Install terraform",
       description:
         "Ensure a terraform binary is available. Only installs the binary — provider " +
         "plugins are pulled by terraform_init. Priority: terraform_path param > PATH > " +
         "global cache (~/.huaweicloud-ops-deploy/bin/) > download from binary_mirrors. " +
         "Download falls back to <deployment>/.terraform/bin/ when HOME is not writable.",
+      annotations: CLOUD_WRITE,
       inputSchema: z.object({
         deployment: deploymentParam.describe("Used only as download fallback when HOME is not writable."),
         terraform_path: z.string().optional().describe("Explicit path to a terraform binary."),
@@ -303,11 +305,12 @@ function registerInit(mcp: McpServer): void {
   mcp.registerTool(
     "terraform_init",
     {
-      title: "terraform init",
+      title: "Terraform init",
       description:
         "Run `terraform init`. Generates <deployment>/.terraformrc with provider mirror " +
         "config (if not user-provided), sets TF_PLUGIN_CACHE_DIR, pulls provider plugins. " +
         "Credential env injected from keychain.",
+      annotations: CLOUD_WRITE,
       inputSchema: z.object({
         deployment: deploymentParam,
         provider_mirrors: z.array(z.string()).optional().describe("Provider mirror URLs/paths."),
@@ -344,10 +347,11 @@ function registerPlan(mcp: McpServer): void {
   mcp.registerTool(
     "terraform_plan",
     {
-      title: "terraform plan",
+      title: "Terraform plan",
       description:
         "Run `terraform plan`. Returns a STRUCTURED plan (terraform show -json) " +
         "to parse and reorganize into human-readable form for the user.",
+      annotations: READ_ONLY_CLOUD,
       inputSchema: z.object({ deployment: deploymentParam, env: envParam }),
     },
     guard(async (args, ctx) => handlePlan(args.deployment, args.env ?? [], ctx)),
@@ -402,10 +406,11 @@ function registerApply(mcp: McpServer): void {
   mcp.registerTool(
     "terraform_apply",
     {
-      title: "terraform apply",
+      title: "Terraform apply",
       description:
         "Run `terraform apply`. Enforces four safety gates: networking.json exists, " +
         "cost.json exists, tf_hash state machine, no plaintext credentials.",
+      annotations: CLOUD_DESTRUCTIVE,
       inputSchema: z.object({ deployment: deploymentParam, env: envParam }),
     },
     // Named so the read-only gate can refuse it: this tool creates and
@@ -442,7 +447,7 @@ function registerDestroy(mcp: McpServer): void {
   mcp.registerTool(
     "terraform_destroy",
     {
-      title: "terraform destroy",
+      title: "Terraform destroy",
       description:
         "Run `terraform destroy`. Permanently deletes cloud resources managed by this " +
         "deployment — irreversible. MUST confirm with the user before calling. " +
@@ -453,6 +458,7 @@ function registerDestroy(mcp: McpServer): void {
         "destroy only the newly-created resources, leaving imported ones in state. " +
         "Call terraform_state first to list resource addresses. " +
         "A future enhancement will return a structured plan -destroy preview for the user to review before the actual destroy.",
+      annotations: CLOUD_DESTRUCTIVE,
       inputSchema: z.object({
         deployment: deploymentParam,
         target: z.array(z.string()).optional().describe(
@@ -514,8 +520,9 @@ function registerRefresh(mcp: McpServer): void {
   mcp.registerTool(
     "terraform_refresh",
     {
-      title: "terraform refresh",
+      title: "Terraform refresh",
       description: "Run `terraform apply -refresh-only`. Updates tfstate to reflect real cloud state.",
+      annotations: READ_ONLY_CLOUD,
       inputSchema: z.object({ deployment: deploymentParam, env: envParam }),
     },
     guard(async (args, ctx) => {
@@ -537,11 +544,12 @@ function registerState(mcp: McpServer): void {
   mcp.registerTool(
     "terraform_state",
     {
-      title: "读取 tfstate",
+      title: "Read tfstate",
       description:
         "Read terraform state via `terraform show -json`. Returns structured " +
         "state. Uses terraform's stable show -json interface (not direct " +
         "tfstate parse).",
+      annotations: READ_ONLY_LOCAL,
       inputSchema: z.object({ deployment: deploymentParam, env: envParam }),
     },
     guard(async (args) => {
@@ -566,7 +574,7 @@ function registerImport(mcp: McpServer): void {
   mcp.registerTool(
     "terraform_import",
     {
-      title: "terraform import",
+      title: "Terraform import",
       description:
         "Run `terraform import` to bring an existing cloud resource into tfstate " +
         "without creating it. Use after list_existing_resources to reuse an " +
@@ -575,6 +583,7 @@ function registerImport(mcp: McpServer): void {
         "and ID format depend on the provider type — check provider docs or " +
         "apiexplorer for the import syntax (e.g. " +
         "huaweicloud_compute_instance.myvm <instance-id>).",
+      annotations: READ_ONLY_CLOUD,
       inputSchema: z.object({
         deployment: deploymentParam,
         address: z.string().min(1).describe("Terraform resource address, e.g. huaweicloud_compute_instance.myvm"),

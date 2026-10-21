@@ -4,6 +4,7 @@ import { z } from "zod";
 import { fail, guard, ok } from "./errors.js";
 import { queryBalanceSummary } from "./balance_summary.js";
 import { signedHttp } from "../auth/http.js";
+import { READ_ONLY_CLOUD } from "./annotations.js";
 import { loadAccount } from "../auth/store.js";
 
 /**
@@ -36,7 +37,7 @@ export function registerExistingResourcesTool(mcp: McpServer): void {
   mcp.registerTool(
     "list_existing_resources",
     {
-      title: "盘点已有云资源",
+      title: "List existing cloud resources",
       description:
         "List HuaweiCloud resources the user already owns (for reuse in a " +
         "deployment) via RMS (Resource Management Service). Two stages: " +
@@ -51,6 +52,7 @@ export function registerExistingResourcesTool(mcp: McpServer): void {
         "NOTE: RMS data may lag — resources recently created or destroyed may " +
         "not reflect immediately. When timing matters (e.g. verifying cleanup " +
         "after destroy), be aware this data source is not real-time.",
+      annotations: READ_ONLY_CLOUD,
       inputSchema: z.object({
         service: z.string().optional().describe('Filter by RMS provider in detail mode: "vpc"|"ecs"|"rds"|"elb"|...'),
         region: z.string().optional().describe("Filter by region in detail mode. If omitted, details span all regions."),

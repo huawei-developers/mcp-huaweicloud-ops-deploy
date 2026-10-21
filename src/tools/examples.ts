@@ -4,6 +4,7 @@ import { mkdir, readFile, readdir } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { LOCAL_WRITE } from "./annotations.js";
 import { fail, guard, ok } from "./errors.js";
 import { destParam } from "./index.js";
 import { extractArchive } from "../utils/tar.js";
@@ -13,13 +14,14 @@ export function registerExamplesTool(mcp: McpServer): void {
   mcp.registerTool(
     "terraform_examples_export",
     {
-      title: "导出 terraform 编排示例",
+      title: "Export terraform examples",
       description:
         "Export HuaweiCloud terraform provider examples (.tf reference files) " +
         "to a target directory. Organized by cloud service category (ecs, vpc, " +
         "rds, ...). Serve as cross-resource assembly templates. Note: example " +
         "providers.tf may contain access_key lines from upstream docs — IGNORE " +
         "those (credentials go via env vars, never in .tf).",
+      annotations: LOCAL_WRITE,
       inputSchema: z.object({ dest: destParam }),
     },
     guard(async (args) => handleExamplesExport(args.dest)),
